@@ -24,8 +24,8 @@ type EventPage struct {
 		Users []User `json:"users"`
 	} `json:"includes"`
 	Meta struct {
-		NextToken  string `json:"next_token"`
-		ResultCount int   `json:"result_count"`
+		NextToken   string `json:"next_token"`
+		ResultCount int    `json:"result_count"`
 	} `json:"meta"`
 }
 

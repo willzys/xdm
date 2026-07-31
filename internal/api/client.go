@@ -27,9 +27,9 @@ type Client struct {
 
 func NewClient(tokens TokenSource) *Client {
 	return &Client{
-		baseURL: defaultBaseURL,
+		baseURL:    defaultBaseURL,
 		httpClient: &http.Client{Timeout: 30 * time.Second},
-		tokens: tokens,
+		tokens:     tokens,
 	}
 }
 
