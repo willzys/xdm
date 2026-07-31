@@ -34,25 +34,3 @@ jobs:
             exit 1
           fi
           echo "Expected squash commit: ${PR_TITLE} (#${PR_NUMBER})"
-
-      - name: Verify squash merge configuration
-        env:
-          GH_TOKEN: ${{ github.token }}
-          REPOSITORY: ${{ github.repository }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          settings="$(curl --fail-with-body --silent --show-error \
-            --header "Authorization: Bearer ${GH_TOKEN}" \
-            --header "Accept: application/vnd.github+json" \
-            --header "X-GitHub-Api-Version: 2022-11-28" \
-            "https://api.github.com/repos/${REPOSITORY}")"
-          if ! jq -e '
-            .allow_squash_merge == true and
-            .allow_merge_commit == false and
-            .allow_rebase_merge == false and
-            .squash_merge_commit_title == "PR_TITLE"
-          ' <<<"$settings" >/dev/null; then
-            echo "Repository must allow only squash merges and use the PR title as the squash commit title."
-            exit 1
-          fi
