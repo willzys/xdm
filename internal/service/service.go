@@ -28,6 +28,10 @@ func (s *Service) Messages(ctx context.Context, conversationID string) ([]cache.
 	return s.cache.Messages(ctx, conversationID)
 }
 
+func (s *Service) Search(ctx context.Context, query string) ([]cache.SearchResult, error) {
+	return s.cache.Search(ctx, query)
+}
+
 func (s *Service) MarkRead(ctx context.Context, conversationID string) error {
 	return s.cache.MarkRead(ctx, conversationID)
 }

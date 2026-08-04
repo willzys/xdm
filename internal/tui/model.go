@@ -2,13 +2,15 @@ package tui
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"time"
 
-	"github.com/charmbracelet/bubbles/spinner"
-	"github.com/charmbracelet/bubbles/textarea"
-	"github.com/charmbracelet/bubbles/textinput"
-	tea "github.com/charmbracelet/bubbletea"
+	"charm.land/bubbles/v2/key"
+	"charm.land/bubbles/v2/spinner"
+	"charm.land/bubbles/v2/textarea"
+	"charm.land/bubbles/v2/textinput"
+	tea "charm.land/bubbletea/v2"
 	"github.com/willzys/xdm/internal/cache"
 )
 
@@ -17,6 +19,7 @@ const syncInterval = 65 * time.Second
 type Backend interface {
 	Inbox(context.Context, string) ([]cache.Conversation, error)
 	Messages(context.Context, string) ([]cache.Message, error)
+	Search(context.Context, string) ([]cache.SearchResult, error)
 	MarkRead(context.Context, string) error
 	Sync(context.Context) error
 	Send(context.Context, string, string) error
@@ -29,6 +32,7 @@ const (
 	focusChat
 	focusComposer
 	focusSearch
+	focusSearchResults
 )
 
 type Model struct {
@@ -39,11 +43,15 @@ type Model struct {
 	inbox            []cache.Conversation
 	selected         int
 	messages         []cache.Message
+	searchResults    []cache.SearchResult
+	selectedSearch   int
 	composer         textarea.Model
 	search           textinput.Model
 	spinner          spinner.Model
 	loading, sending bool
 	query, status    string
+	highlightMessage string
+	highlightQuery   string
 	err              error
 }
 
@@ -56,6 +64,10 @@ type messagesMsg struct {
 	items          []cache.Message
 	err            error
 }
+type searchResultsMsg struct {
+	items []cache.SearchResult
+	err   error
+}
 type syncMsg struct{ err error }
 type sendMsg struct{ err error }
 type syncTick time.Time
@@ -67,6 +79,10 @@ func New(ctx context.Context, backend Backend) Model {
 	composer.ShowLineNumbers = false
 	composer.SetHeight(3)
 	composer.CharLimit = 10000
+	composer.KeyMap.InsertNewline = key.NewBinding(
+		key.WithKeys("ctrl+enter", "alt+enter"),
+		key.WithHelp("ctrl+enter", "insert newline"),
+	)
 	search := textinput.New()
 	search.Placeholder = "Search conversations and messages"
 	search.CharLimit = 256
@@ -105,7 +121,7 @@ func (m Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.err = nil
 		m.status = "Inbox updated"
-		return m, loadInbox(m.ctx, m.backend, m.query)
+		return m, loadInbox(m.ctx, m.backend, "")
 	case inboxMsg:
 		if msg.err != nil {
 			m.err = msg.err
@@ -130,6 +146,16 @@ func (m Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 			m.messages = msg.items
 		}
 		return m, nil
+	case searchResultsMsg:
+		if msg.err != nil {
+			m.err = msg.err
+			return m, nil
+		}
+		m.err = nil
+		m.searchResults = msg.items
+		m.selectedSearch = 0
+		m.focus = focusSearchResults
+		return m, nil
 	case sendMsg:
 		m.sending = false
 		if msg.err != nil {
@@ -140,9 +166,9 @@ func (m Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		m.composer.Reset()
 		m.focus = focusChat
 		m.status = "Message sent"
-		return m, tea.Batch(loadInbox(m.ctx, m.backend, m.query), m.loadCurrentMessages())
+		return m, tea.Batch(loadInbox(m.ctx, m.backend, ""), m.loadCurrentMessages())
 	}
-	key, ok := message.(tea.KeyMsg)
+	key, ok := message.(tea.KeyPressMsg)
 	if !ok {
 		return m, nil
 	}
@@ -154,6 +180,9 @@ func (m Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 	}
 	if m.focus == focusSearch {
 		return m.updateSearch(key)
+	}
+	if m.focus == focusSearchResults {
+		return m.updateSearchResults(key)
 	}
 	return m.updateNavigation(key)
 }
@@ -171,21 +200,25 @@ func (m Model) updateNavigation(key tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "j", "down":
 		if m.focus == focusInbox && m.selected < len(m.inbox)-1 {
 			m.selected++
+			m.clearHighlight()
 			return m, m.openCurrent()
 		}
 	case "k", "up":
 		if m.focus == focusInbox && m.selected > 0 {
 			m.selected--
+			m.clearHighlight()
 			return m, m.openCurrent()
 		}
 	case "g":
 		if len(m.inbox) > 0 {
 			m.selected = 0
+			m.clearHighlight()
 			return m, m.openCurrent()
 		}
 	case "G":
 		if len(m.inbox) > 0 {
 			m.selected = len(m.inbox) - 1
+			m.clearHighlight()
 			return m, m.openCurrent()
 		}
 	case "enter", "i":
@@ -238,14 +271,66 @@ func (m Model) updateSearch(key tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case "enter":
 		m.query = strings.TrimSpace(m.search.Value())
-		m.selected = 0
 		m.search.Blur()
-		m.focus = focusInbox
-		return m, loadInbox(m.ctx, m.backend, m.query)
+		if m.query == "" {
+			m.searchResults = nil
+			m.focus = focusInbox
+			return m, nil
+		}
+		return m, loadSearch(m.ctx, m.backend, m.query)
 	}
 	var cmd tea.Cmd
 	m.search, cmd = m.search.Update(key)
 	return m, cmd
+}
+
+func (m Model) updateSearchResults(key tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+	switch key.String() {
+	case "esc":
+		m.focus = focusInbox
+		return m, nil
+	case "/":
+		m.focus = focusSearch
+		m.search.SetValue(m.query)
+		m.search.CursorEnd()
+		return m, m.search.Focus()
+	case "j", "down":
+		if m.selectedSearch < len(m.searchResults)-1 {
+			m.selectedSearch++
+		}
+	case "k", "up":
+		if m.selectedSearch > 0 {
+			m.selectedSearch--
+		}
+	case "g":
+		m.selectedSearch = 0
+	case "G":
+		if len(m.searchResults) > 0 {
+			m.selectedSearch = len(m.searchResults) - 1
+		}
+	case "enter":
+		if m.selectedSearch < 0 || m.selectedSearch >= len(m.searchResults) {
+			return m, nil
+		}
+		result := m.searchResults[m.selectedSearch]
+		for index, conversation := range m.inbox {
+			if conversation.ID != result.ConversationID {
+				continue
+			}
+			m.selected = index
+			m.focus = focusChat
+			m.highlightMessage = result.MessageID
+			m.highlightQuery = m.query
+			return m, m.openCurrent()
+		}
+		m.err = fmt.Errorf("conversation for search result is no longer available")
+	}
+	return m, nil
+}
+
+func (m *Model) clearHighlight() {
+	m.highlightMessage = ""
+	m.highlightQuery = ""
 }
 
 func (m *Model) resize() {
@@ -254,7 +339,7 @@ func (m *Model) resize() {
 		width = m.width - 4
 	}
 	m.composer.SetWidth(max(20, width))
-	m.search.Width = max(20, min(60, m.width-8))
+	m.search.SetWidth(max(20, min(60, m.width-8)))
 }
 
 func (m Model) current() (cache.Conversation, bool) {
@@ -283,6 +368,9 @@ func loadInbox(ctx context.Context, b Backend, q string) tea.Cmd {
 }
 func loadMessages(ctx context.Context, b Backend, id string) tea.Cmd {
 	return func() tea.Msg { items, err := b.Messages(ctx, id); return messagesMsg{id, items, err} }
+}
+func loadSearch(ctx context.Context, b Backend, query string) tea.Cmd {
+	return func() tea.Msg { items, err := b.Search(ctx, query); return searchResultsMsg{items, err} }
 }
 func markRead(ctx context.Context, b Backend, id string) tea.Cmd {
 	return func() tea.Msg { _ = b.MarkRead(ctx, id); return nil }
