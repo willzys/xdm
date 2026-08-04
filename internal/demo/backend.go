@@ -63,6 +63,34 @@ func (b *Backend) Messages(ctx context.Context, id string) ([]cache.Message, err
 	return append([]cache.Message(nil), b.messages...), nil
 }
 
+func (b *Backend) Search(ctx context.Context, query string) ([]cache.SearchResult, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+	query = strings.ToLower(strings.TrimSpace(query))
+	if query == "" {
+		return nil, nil
+	}
+	var results []cache.SearchResult
+	for index := len(b.messages) - 1; index >= 0; index-- {
+		message := b.messages[index]
+		if !strings.Contains(strings.ToLower(message.Text), query) {
+			continue
+		}
+		results = append(results, cache.SearchResult{
+			MessageID:         message.ID,
+			ConversationID:    conversationID,
+			ConversationTitle: b.conversation.Title,
+			SenderName:        message.SenderName,
+			Text:              message.Text,
+			CreatedAt:         message.CreatedAt,
+		})
+	}
+	return results, nil
+}
+
 func (b *Backend) MarkRead(ctx context.Context, id string) error {
 	if err := ctx.Err(); err != nil {
 		return err

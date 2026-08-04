@@ -29,6 +29,15 @@ type Message struct {
 	CreatedAt      time.Time
 }
 
+type SearchResult struct {
+	MessageID         string
+	ConversationID    string
+	ConversationTitle string
+	SenderName        string
+	Text              string
+	CreatedAt         time.Time
+}
+
 type Cache struct{ db *sql.DB }
 
 func Open(path string) (*Cache, error) {
@@ -175,6 +184,36 @@ WHERE m.conversation_id=? ORDER BY m.created_at`, conversationID)
 		messages = append(messages, item)
 	}
 	return messages, rows.Err()
+}
+
+func (c *Cache) Search(ctx context.Context, query string) ([]SearchResult, error) {
+	query = strings.TrimSpace(query)
+	if query == "" {
+		return nil, nil
+	}
+	like := "%" + strings.ToLower(query) + "%"
+	rows, err := c.db.QueryContext(ctx, `SELECT m.id,m.conversation_id,c.title,
+COALESCE(NULLIF(u.name,''),'@'||u.username,''),m.text,m.created_at
+FROM messages m
+JOIN conversations c ON c.id=m.conversation_id
+LEFT JOIN users u ON u.id=m.sender_id
+WHERE LOWER(m.text) LIKE ?
+ORDER BY m.created_at DESC`, like)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var results []SearchResult
+	for rows.Next() {
+		var result SearchResult
+		var created string
+		if err := rows.Scan(&result.MessageID, &result.ConversationID, &result.ConversationTitle, &result.SenderName, &result.Text, &created); err != nil {
+			return nil, err
+		}
+		result.CreatedAt, _ = time.Parse(time.RFC3339Nano, created)
+		results = append(results, result)
+	}
+	return results, rows.Err()
 }
 
 func (c *Cache) MarkRead(ctx context.Context, conversationID string) error {
