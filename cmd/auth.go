@@ -76,9 +76,12 @@ var logoutCmd = &cobra.Command{
 
 var authWebCmd = &cobra.Command{
 	Use:   "web",
-	Short: "Connect xdm to an X web session using an isolated browser profile",
-	Args:  cobra.NoArgs,
-	RunE:  runAuthWeb,
+	Short: "Connect xdm to an X web session using a dedicated browser profile",
+	Long: "Connect xdm to an X web session using a dedicated, persistent browser profile. " +
+		"The login window runs without remote debugging. After you sign in and close it, " +
+		"xdm reopens the same profile briefly to capture the authenticated session.",
+	Args: cobra.NoArgs,
+	RunE: runAuthWeb,
 }
 
 var authStatusCmd = &cobra.Command{
@@ -110,7 +113,7 @@ func init() {
 	authCmd.Flags().StringVar(&authRedirectURI, "redirect-uri", config.DefaultRedirectURI, "registered OAuth callback URI")
 	authCmd.Flags().BoolVar(&authNoBrowser, "no-browser", false, "print the authorization URL without opening a browser")
 	authWebCmd.Flags().StringVar(&authWebBrowser, "browser", "auto", "browser to use: auto, chrome, edge, or chromium")
-	authWebCmd.Flags().DurationVar(&authWebTimeout, "timeout", 5*time.Minute, "maximum time to wait for browser login")
+	authWebCmd.Flags().DurationVar(&authWebTimeout, "timeout", 5*time.Minute, "maximum time for browser login and session capture")
 	logoutCmd.Flags().StringVar(&logoutAccount, "account", "", "remove only this saved web account")
 	authCmd.AddCommand(authWebCmd, authStatusCmd, authUseCmd)
 	rootCmd.AddCommand(authCmd, logoutCmd)
