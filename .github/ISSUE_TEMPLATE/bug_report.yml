@@ -1,0 +1,101 @@
+name: Bug report
+description: Report reproducible incorrect behavior in xdm
+title: "fix: "
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thank you for reporting a bug.
+
+        Do not include OAuth tokens, cookies, Direct Message content, account identifiers, or other private information. Report security vulnerabilities using SECURITY.md instead.
+
+  - type: textarea
+    id: description
+    attributes:
+      label: Description
+      description: Describe the problem clearly and concisely.
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: Provide the smallest reliable sequence that reproduces the problem.
+      placeholder: |
+        1. Run ...
+        2. Press ...
+        3. Observe ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+      description: What should have happened?
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+      description: What happened instead?
+    validations:
+      required: true
+
+  - type: dropdown
+    id: backend
+    attributes:
+      label: Backend
+      options:
+        - Official X API
+        - Demo
+        - Not applicable
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: Version or commit
+      description: Provide the release version or Git commit SHA.
+      placeholder: "Example: main at 0dd4dd7"
+    validations:
+      required: true
+
+  - type: input
+    id: operating-system
+    attributes:
+      label: Operating system
+      placeholder: "Example: Windows 11, macOS 15, Ubuntu 24.04"
+    validations:
+      required: true
+
+  - type: input
+    id: terminal
+    attributes:
+      label: Terminal
+      placeholder: "Example: Windows Terminal, iTerm2, GNOME Terminal"
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Sanitized error output
+      description: Remove credentials, tokens, messages, usernames, IDs, and other private data.
+      render: text
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Checks
+      options:
+        - label: I searched existing issues for the same problem.
+          required: true
+        - label: I removed credentials and private message data from this report.
+          required: true
+        - label: This is not a security vulnerability.
+          required: true
