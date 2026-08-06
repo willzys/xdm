@@ -24,16 +24,6 @@ experimental X web/XChat backend.
 - Keep backend, authentication, service, storage, and interface concerns
   separated for contributors.
 
-```text
-xdm  Direct Messages
-┌─ Inbox ──────────────────┐┌─ Conversation ──────────────────────────┐
-│ Alice                    ││ Alice                                    │
-│ Project contributors     ││  Did the release build pass?             │
-│ Support                  ││                              Yes, all good │
-└──────────────────────────┘└──────────────────────────────────────────┘
- j/k move  tab pane  enter compose  / search  R sync  q quit
-```
-
 ## Project status
 
 `xdm` is alpha software under active development. There is no stable release
@@ -257,32 +247,6 @@ Each web account has an isolated local message database.
   must never be attached to public issues.
 
 See [SECURITY.md](SECURITY.md) for private vulnerability reporting.
-
-## Architecture
-
-```mermaid
-flowchart LR
-    CLI["Cobra CLI"] --> AUTH["OAuth or web authentication"]
-    AUTH --> CLIENT["Official API or web/XChat client"]
-    CLIENT --> SERVICE["DM service"]
-    SERVICE --> CACHE["SQLite cache"]
-    SERVICE --> TUI["Bubble Tea TUI"]
-    CLIENT --> CRYPTO["Official XChat crypto runtime"]
-```
-
-The main packages are intentionally small and separated:
-
-| Package | Responsibility |
-| --- | --- |
-| `cmd` | Commands, flags, backend selection, and lifecycle |
-| `internal/auth` | Official OAuth 2.0 authorization and token storage |
-| `internal/webauth` | Dedicated-browser login and encrypted web sessions |
-| `internal/api` | Official X API transport and shared API models |
-| `internal/webapi` | Experimental web and XChat requests |
-| `internal/xchat` | PIN recovery and encrypted event/message operations |
-| `internal/service` | Backend-independent synchronization and sending |
-| `internal/cache` | SQLite persistence and local search |
-| `internal/tui` | Bubble Tea state, commands, input, and rendering |
 
 ## Roadmap
 
