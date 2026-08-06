@@ -31,7 +31,7 @@ func TestClientImplementsWebDMFlow(t *testing.T) {
 			if request.URL.Query().Get("variables") == "" {
 				t.Error("XChat request did not include variables")
 			}
-			writeJSON(t, response, `{"data":{"get_initial_chat_page":{"items":[{"latest_message_events":["encoded"],"latest_conversation_key_change_events":["key"],"conversation_detail":{"participants_results":[{"rest_id":"100"},{"rest_id":"200"}]}}]}}}`)
+			writeJSON(t, response, `{"data":{"get_initial_chat_page":{"items":[{"latest_message_events":["encoded"],"latest_conversation_key_change_events":["key"],"conversation_detail":{"conversation_id":"100:200","participants_results":[{"rest_id":"100","result":{"core":{"name":"Example User","screen_name":"example"}}},{"rest_id":"200","result":{"core":{"name":"Friend","screen_name":"friend"}}}]}}]}}}`)
 		case "/graphql/GetPublicKeys":
 			if !strings.Contains(request.URL.Query().Get("variables"), `"include_juicebox_tokens":true`) {
 				t.Error("public-key request did not request Juicebox tokens")
@@ -138,6 +138,9 @@ func TestClientImplementsWebDMFlow(t *testing.T) {
 	}
 	if material.RealmTokens["aa"] != "token-a" || string(material.JuiceboxConfig) == "" {
 		t.Fatalf("unlock recovery metadata = %#v", material)
+	}
+	if len(material.Users) != 2 || strings.Join(material.Participants["100:200"], ",") != "100,200" {
+		t.Fatalf("unlock conversation metadata = %#v", material)
 	}
 	result, err := client.Send(context.Background(), "100-200", "  keep my spacing  ")
 	if err != nil {

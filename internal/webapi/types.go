@@ -37,15 +37,22 @@ type xchatInboxItem struct {
 	EncodedMessageEvents              []string `json:"encoded_message_events"`
 	LatestConversationKeyChangeEvents []string `json:"latest_conversation_key_change_events"`
 	ConversationDetail                struct {
-		Participants []xchatUserResult `json:"participants_results"`
-		GroupAdmins  []xchatUserResult `json:"group_admins_results"`
-		GroupMembers []xchatUserResult `json:"group_members_results"`
-		RemovedUsers []xchatUserResult `json:"group_removed_users"`
+		ConversationID string            `json:"conversation_id"`
+		Participants   []xchatUserResult `json:"participants_results"`
+		GroupAdmins    []xchatUserResult `json:"group_admins_results"`
+		GroupMembers   []xchatUserResult `json:"group_members_results"`
+		RemovedUsers   []xchatUserResult `json:"group_removed_users"`
 	} `json:"conversation_detail"`
 }
 
 type xchatUserResult struct {
 	RestID string `json:"rest_id"`
+	Result *struct {
+		Core *struct {
+			Name       string `json:"name"`
+			ScreenName string `json:"screen_name"`
+		} `json:"core"`
+	} `json:"result"`
 }
 
 type xchatPublicKeysResponse struct {

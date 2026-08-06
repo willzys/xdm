@@ -25,12 +25,17 @@ const (
 )
 
 type Client struct {
-	baseURL      string
-	xchatURL     string
-	xchatKeysURL string
-	httpClient   *http.Client
-	self         api.User
-	clientUUID   string
+	baseURL        string
+	xchatURL       string
+	xchatKeysURL   string
+	httpClient     *http.Client
+	self           api.User
+	clientUUID     string
+	xchatDecryptor XChatDecryptor
+}
+
+type XChatDecryptor interface {
+	Decrypt(context.Context, XChatUnlockMaterial) (api.EventPage, error)
 }
 
 type InboxDiagnostics struct {
@@ -63,6 +68,8 @@ type XChatUnlockMaterial struct {
 	RealmTokens    map[string]string      `json:"realmTokens"`
 	Events         []string               `json:"events"`
 	SigningKeys    []XChatSigningKeyEntry `json:"signingKeys"`
+	Users          []api.User             `json:"users"`
+	Participants   map[string][]string    `json:"participants"`
 }
 
 type XChatSigningKeyEntry struct {
@@ -100,12 +107,23 @@ func (c *Client) Events(ctx context.Context, paginationToken string) (api.EventP
 	if paginationToken != "" {
 		return api.EventPage{}, errors.New("X web DM pagination is not supported yet")
 	}
+	if c.xchatDecryptor != nil {
+		material, err := c.PrepareXChatUnlock(ctx)
+		if err != nil {
+			return api.EventPage{}, err
+		}
+		return c.xchatDecryptor.Decrypt(ctx, material)
+	}
 	values := inboxParameters()
 	var response inboxResponse
 	if err := c.do(ctx, http.MethodGet, "/1.1/dm/inbox_initial_state.json?"+values.Encode(), "https://x.com/messages", nil, &response); err != nil {
 		return api.EventPage{}, err
 	}
 	return response.eventPage()
+}
+
+func (c *Client) SetXChatDecryptor(decryptor XChatDecryptor) {
+	c.xchatDecryptor = decryptor
 }
 
 func (c *Client) DiagnoseInbox(ctx context.Context) (InboxDiagnostics, error) {
@@ -260,7 +278,39 @@ func (c *Client) PrepareXChatUnlock(ctx context.Context) (XChatUnlockMaterial, e
 	if len(keys.Errors) > 0 {
 		return XChatUnlockMaterial{}, errors.New("XChat public-key query returned GraphQL errors")
 	}
-	material := XChatUnlockMaterial{UserID: c.self.ID, Events: events, RealmTokens: make(map[string]string)}
+	material := XChatUnlockMaterial{
+		UserID: c.self.ID, Events: events, RealmTokens: make(map[string]string),
+		Participants: make(map[string][]string),
+	}
+	userDetails := make(map[string]api.User)
+	for _, item := range inbox.Data.Page.Items {
+		conversationID := item.ConversationDetail.ConversationID
+		var participantIDs []string
+		for _, users := range [][]xchatUserResult{
+			item.ConversationDetail.Participants,
+			item.ConversationDetail.GroupMembers,
+		} {
+			for _, user := range users {
+				if user.RestID == "" {
+					continue
+				}
+				participantIDs = appendUnique(participantIDs, user.RestID)
+				entry := api.User{ID: user.RestID}
+				if user.Result != nil && user.Result.Core != nil {
+					entry.Name = user.Result.Core.Name
+					entry.Username = user.Result.Core.ScreenName
+				}
+				userDetails[user.RestID] = entry
+			}
+		}
+		if conversationID != "" {
+			material.Participants[conversationID] = participantIDs
+		}
+	}
+	for _, user := range userDetails {
+		material.Users = append(material.Users, user)
+	}
+	sort.Slice(material.Users, func(i, j int) bool { return material.Users[i].ID < material.Users[j].ID })
 	for _, user := range keys.Data.Users {
 		for _, item := range user.Result.PublicKeys.Items {
 			key := item.Metadata.Key
@@ -296,6 +346,15 @@ func (c *Client) PrepareXChatUnlock(ctx context.Context) (XChatUnlockMaterial, e
 	return material, nil
 }
 
+func appendUnique(values []string, value string) []string {
+	for _, existing := range values {
+		if existing == value {
+			return values
+		}
+	}
+	return append(values, value)
+}
+
 func (c *Client) getInitialXChatPage(ctx context.Context) (xchatInboxResponse, error) {
 	settings := struct {
 		InboxConversationEventLimit int `json:"inbox_conversation_event_limit"`
@@ -320,6 +379,9 @@ func (c *Client) getInitialXChatPage(ctx context.Context) (xchatInboxResponse, e
 }
 
 func (c *Client) Send(ctx context.Context, conversationID, text string) (api.SendResult, error) {
+	if c.xchatDecryptor != nil {
+		return api.SendResult{}, errors.New("sending encrypted XChat messages is not implemented yet")
+	}
 	conversationID = strings.TrimSpace(conversationID)
 	if conversationID == "" {
 		return api.SendResult{}, errors.New("conversation ID is required")
