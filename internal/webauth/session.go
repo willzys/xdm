@@ -126,10 +126,11 @@ func (s Session) Apply(request *http.Request) {
 		if cookie.Value == "" || (!cookie.Expires.IsZero() && !cookie.Expires.After(time.Now())) || !cookieApplies(cookie, request.URL) {
 			continue
 		}
-		request.AddCookie(&http.Cookie{
-			Name: cookie.Name, Value: cookie.Value, Path: cookie.Path,
-			Domain: cookie.Domain, Expires: cookie.Expires, Secure: cookie.Secure, HttpOnly: cookie.HTTPOnly,
-		})
+		requestCookie := &http.Cookie{Name: cookie.Name, Value: cookie.Value}
+		if err := requestCookie.Valid(); err != nil {
+			continue
+		}
+		request.AddCookie(requestCookie)
 	}
 	if token := s.CSRFToken(); token != "" {
 		request.Header.Set("X-CSRF-Token", token)
