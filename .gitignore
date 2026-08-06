@@ -7,3 +7,4 @@ coverage.out
 *_test.go
 /test/
 /tests/
+node_modules/

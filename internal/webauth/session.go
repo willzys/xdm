@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/url"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -62,6 +63,26 @@ func (s Session) DisplayName() string {
 	return s.Key()
 }
 
+func (s Session) UserID() string {
+	if s.Account.ID != "" {
+		return s.Account.ID
+	}
+	for _, cookie := range s.Cookies {
+		if cookie.Name != "twid" || cookie.Value == "" || !allowedCookieDomain(cookie.Domain) {
+			continue
+		}
+		value, err := url.QueryUnescape(cookie.Value)
+		if err != nil {
+			continue
+		}
+		value = strings.TrimPrefix(value, "u=")
+		if _, err := strconv.ParseUint(value, 10, 64); err == nil {
+			return value
+		}
+	}
+	return ""
+}
+
 func (s Session) Validate(now time.Time) error {
 	if len(s.Cookies) == 0 {
 		return ErrNotAuthenticated
@@ -105,10 +126,11 @@ func (s Session) Apply(request *http.Request) {
 		if cookie.Value == "" || (!cookie.Expires.IsZero() && !cookie.Expires.After(time.Now())) || !cookieApplies(cookie, request.URL) {
 			continue
 		}
-		request.AddCookie(&http.Cookie{
-			Name: cookie.Name, Value: cookie.Value, Path: cookie.Path,
-			Domain: cookie.Domain, Expires: cookie.Expires, Secure: cookie.Secure, HttpOnly: cookie.HTTPOnly,
-		})
+		requestCookie := &http.Cookie{Name: cookie.Name, Value: cookie.Value}
+		if err := requestCookie.Valid(); err != nil {
+			continue
+		}
+		request.AddCookie(requestCookie)
 	}
 	if token := s.CSRFToken(); token != "" {
 		request.Header.Set("X-CSRF-Token", token)

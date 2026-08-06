@@ -10,13 +10,19 @@ import (
 )
 
 type Service struct {
-	api   *api.Client
+	api   Client
 	cache *cache.Cache
 	mu    sync.Mutex
 	self  api.User
 }
 
-func New(apiClient *api.Client, messageCache *cache.Cache) *Service {
+type Client interface {
+	Me(context.Context) (api.User, error)
+	Events(context.Context, string) (api.EventPage, error)
+	Send(context.Context, string, string) (api.SendResult, error)
+}
+
+func New(apiClient Client, messageCache *cache.Cache) *Service {
 	return &Service{api: apiClient, cache: messageCache}
 }
 

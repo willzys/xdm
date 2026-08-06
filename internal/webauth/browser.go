@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -77,6 +78,9 @@ func Login(ctx context.Context, options LoginOptions) (Session, error) {
 	if err := loginCtx.Err(); err != nil {
 		return Session{}, err
 	}
+	if err := clearDevToolsActivePort(profile); err != nil {
+		return Session{}, err
+	}
 
 	command := exec.CommandContext(loginCtx, browser.path, captureArguments(profile)...)
 	if err := command.Start(); err != nil {
@@ -115,6 +119,7 @@ func Login(ctx context.Context, options LoginOptions) (Session, error) {
 		} else if hasRequiredCookies(cookies) {
 			account, accountErr := readAccount(loginCtx, port)
 			if accountErr == nil && account.Username != "" {
+				account.ID = (Session{Cookies: cookies}).UserID()
 				now := time.Now().UTC()
 				session := Session{
 					Account: account, Browser: browser.name, UserAgent: version.UserAgent,
@@ -262,7 +267,11 @@ func waitForDevTools(ctx context.Context, profile string, done <-chan error) (in
 				port, parseErr := strconv.Atoi(strings.TrimSpace(lines[0]))
 				browserPath := strings.TrimSpace(lines[1])
 				if parseErr == nil && port > 0 && strings.HasPrefix(browserPath, "/devtools/browser/") {
-					return port, browserPath, nil
+					connection, dialErr := net.DialTimeout("tcp", "127.0.0.1:"+strconv.Itoa(port), 100*time.Millisecond)
+					if dialErr == nil {
+						_ = connection.Close()
+						return port, browserPath, nil
+					}
 				}
 			}
 		}
@@ -277,6 +286,14 @@ func waitForDevTools(ctx context.Context, profile string, done <-chan error) (in
 		case <-ticker.C:
 		}
 	}
+}
+
+func clearDevToolsActivePort(profile string) error {
+	path := filepath.Join(profile, "DevToolsActivePort")
+	if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("removing stale browser debugging state: %w", err)
+	}
+	return nil
 }
 
 func readCookies(ctx context.Context, client *cdpClient) ([]Cookie, error) {
