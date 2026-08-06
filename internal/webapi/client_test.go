@@ -31,12 +31,12 @@ func TestClientImplementsWebDMFlow(t *testing.T) {
 			if request.URL.Query().Get("variables") == "" {
 				t.Error("XChat request did not include variables")
 			}
-			writeJSON(t, response, `{"data":{"get_initial_chat_page":{"items":[{"latest_message_events":["encoded"],"latest_conversation_key_change_events":["key"]}]}}}`)
+			writeJSON(t, response, `{"data":{"get_initial_chat_page":{"items":[{"latest_message_events":["encoded"],"latest_conversation_key_change_events":["key"],"conversation_detail":{"participants_results":[{"rest_id":"100"},{"rest_id":"200"}]}}]}}}`)
 		case "/graphql/GetPublicKeys":
 			if !strings.Contains(request.URL.Query().Get("variables"), `"include_juicebox_tokens":true`) {
 				t.Error("public-key request did not request Juicebox tokens")
 			}
-			writeJSON(t, response, `{"data":{"user_results_by_rest_ids":[{"rest_id":"100","result":{"get_public_keys":{"is_managed_pin_user":true,"public_keys_with_token_map":[{"token_map":{"key_store_token_map_json":"{}","token_map":[{},{}]}}]}}}]}}`)
+			writeJSON(t, response, `{"data":{"user_results_by_rest_ids":[{"rest_id":"100","result":{"get_public_keys":{"is_managed_pin_user":true,"public_keys_with_token_map":[{"public_key_with_metadata":{"version":"1","public_key":{"public_key":"identity","signing_public_key":"signing","identity_public_key_signature":"binding"}},"token_map":{"key_store_token_map_json":"{}","token_map":[{"key":"aa","value":{"token":"token-a"}},{"key":"bb","value":{"token":"token-b"}}]}}]}}},{"rest_id":"200","result":{"get_public_keys":{"public_keys_with_token_map":[{"public_key_with_metadata":{"version":"2","public_key":{"public_key":"friend-identity","signing_public_key":"friend-signing","identity_public_key_signature":"friend-binding"}},"token_map":{}}]}}}]}}`)
 		case "/1.1/dm/inbox_initial_state.json":
 			if request.URL.Query().Get("include_inbox_timelines") != "true" {
 				t.Error("inbox request did not include inbox timelines")
@@ -128,6 +128,16 @@ func TestClientImplementsWebDMFlow(t *testing.T) {
 	}
 	if diagnostics.XChatPublicKeyVersions != 1 || diagnostics.XChatJuiceboxRealms != 2 || !diagnostics.XChatHasJuiceboxConfig || !diagnostics.XChatManagedPIN {
 		t.Fatalf("XChat key diagnostics = %#v", diagnostics)
+	}
+	material, err := client.PrepareXChatUnlock(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if material.UserID != "100" || material.KeyVersion != "1" || len(material.Events) != 2 || len(material.SigningKeys) != 2 {
+		t.Fatalf("PrepareXChatUnlock() = %#v", material)
+	}
+	if material.RealmTokens["aa"] != "token-a" || string(material.JuiceboxConfig) == "" {
+		t.Fatalf("unlock recovery metadata = %#v", material)
 	}
 	result, err := client.Send(context.Background(), "100-200", "  keep my spacing  ")
 	if err != nil {

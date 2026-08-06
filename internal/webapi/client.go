@@ -56,6 +56,23 @@ type InboxDiagnostics struct {
 	XChatManagedPIN        bool
 }
 
+type XChatUnlockMaterial struct {
+	UserID         string                 `json:"userId"`
+	KeyVersion     string                 `json:"keyVersion"`
+	JuiceboxConfig json.RawMessage        `json:"juiceboxConfig"`
+	RealmTokens    map[string]string      `json:"realmTokens"`
+	Events         []string               `json:"events"`
+	SigningKeys    []XChatSigningKeyEntry `json:"signingKeys"`
+}
+
+type XChatSigningKeyEntry struct {
+	UserID                     string `json:"userId"`
+	PublicKeyVersion           string `json:"publicKeyVersion"`
+	PublicKey                  string `json:"publicKey"`
+	IdentityPublicKey          string `json:"identityPublicKey"`
+	IdentityPublicKeySignature string `json:"identityPublicKeySignature"`
+}
+
 func NewClient(httpClient *http.Client, self api.User) (*Client, error) {
 	if httpClient == nil {
 		return nil, errors.New("web HTTP client is required")
@@ -189,6 +206,94 @@ func (c *Client) getXChatPublicKeys(ctx context.Context, userIDs []string) (xcha
 		return xchatPublicKeysResponse{}, err
 	}
 	return response, nil
+}
+
+func (c *Client) PrepareXChatUnlock(ctx context.Context) (XChatUnlockMaterial, error) {
+	inbox, err := c.getInitialXChatPage(ctx)
+	if err != nil {
+		return XChatUnlockMaterial{}, err
+	}
+	if len(inbox.Errors)+len(inbox.Data.Page.Errors) > 0 {
+		return XChatUnlockMaterial{}, errors.New("XChat inbox returned GraphQL errors")
+	}
+	userSet := map[string]struct{}{c.self.ID: {}}
+	seenEvents := make(map[string]struct{})
+	var events []string
+	addEvents := func(values []string) {
+		for _, value := range values {
+			if value == "" {
+				continue
+			}
+			if _, exists := seenEvents[value]; exists {
+				continue
+			}
+			seenEvents[value] = struct{}{}
+			events = append(events, value)
+		}
+	}
+	for _, item := range inbox.Data.Page.Items {
+		for _, users := range [][]xchatUserResult{
+			item.ConversationDetail.Participants,
+			item.ConversationDetail.GroupAdmins,
+			item.ConversationDetail.GroupMembers,
+			item.ConversationDetail.RemovedUsers,
+		} {
+			for _, user := range users {
+				if user.RestID != "" {
+					userSet[user.RestID] = struct{}{}
+				}
+			}
+		}
+		addEvents(item.LatestConversationKeyChangeEvents)
+		addEvents(item.LatestMessageEvents)
+		addEvents(item.EncodedMessageEvents)
+	}
+	userIDs := make([]string, 0, len(userSet))
+	for id := range userSet {
+		userIDs = append(userIDs, id)
+	}
+	sort.Strings(userIDs)
+	keys, err := c.getXChatPublicKeys(ctx, userIDs)
+	if err != nil {
+		return XChatUnlockMaterial{}, err
+	}
+	if len(keys.Errors) > 0 {
+		return XChatUnlockMaterial{}, errors.New("XChat public-key query returned GraphQL errors")
+	}
+	material := XChatUnlockMaterial{UserID: c.self.ID, Events: events, RealmTokens: make(map[string]string)}
+	for _, user := range keys.Data.Users {
+		for _, item := range user.Result.PublicKeys.Items {
+			key := item.Metadata.Key
+			if key.SigningPublicKey != "" && item.Metadata.Version != "" {
+				material.SigningKeys = append(material.SigningKeys, XChatSigningKeyEntry{
+					UserID: user.RestID, PublicKeyVersion: item.Metadata.Version,
+					PublicKey: key.SigningPublicKey, IdentityPublicKey: key.PublicKey,
+					IdentityPublicKeySignature: key.IdentityPublicKeySignature,
+				})
+			}
+			if user.RestID != c.self.ID || item.TokenMap.ConfigJSON == "" {
+				continue
+			}
+			config, err := json.Marshal(item.TokenMap)
+			if err != nil {
+				return XChatUnlockMaterial{}, err
+			}
+			material.KeyVersion = item.Metadata.Version
+			material.JuiceboxConfig = config
+			for _, token := range item.TokenMap.Tokens {
+				if token.Key != "" && token.Value.Token != "" {
+					material.RealmTokens[strings.ToLower(token.Key)] = token.Value.Token
+				}
+			}
+		}
+	}
+	if material.KeyVersion == "" || len(material.JuiceboxConfig) == 0 || len(material.RealmTokens) == 0 {
+		return XChatUnlockMaterial{}, errors.New("XChat key recovery metadata is incomplete")
+	}
+	if len(material.Events) == 0 {
+		return XChatUnlockMaterial{}, errors.New("XChat inbox did not contain decryptable events")
+	}
+	return material, nil
 }
 
 func (c *Client) getInitialXChatPage(ctx context.Context) (xchatInboxResponse, error) {

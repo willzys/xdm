@@ -25,35 +25,67 @@ type inboxResponse struct {
 type xchatInboxResponse struct {
 	Data struct {
 		Page struct {
-			Items []struct {
-				LatestMessageEvents               []string `json:"latest_message_events"`
-				EncodedMessageEvents              []string `json:"encoded_message_events"`
-				LatestConversationKeyChangeEvents []string `json:"latest_conversation_key_change_events"`
-			} `json:"items"`
+			Items  []xchatInboxItem  `json:"items"`
 			Errors []json.RawMessage `json:"errors"`
 		} `json:"get_initial_chat_page"`
 	} `json:"data"`
 	Errors []json.RawMessage `json:"errors"`
 }
 
+type xchatInboxItem struct {
+	LatestMessageEvents               []string `json:"latest_message_events"`
+	EncodedMessageEvents              []string `json:"encoded_message_events"`
+	LatestConversationKeyChangeEvents []string `json:"latest_conversation_key_change_events"`
+	ConversationDetail                struct {
+		Participants []xchatUserResult `json:"participants_results"`
+		GroupAdmins  []xchatUserResult `json:"group_admins_results"`
+		GroupMembers []xchatUserResult `json:"group_members_results"`
+		RemovedUsers []xchatUserResult `json:"group_removed_users"`
+	} `json:"conversation_detail"`
+}
+
+type xchatUserResult struct {
+	RestID string `json:"rest_id"`
+}
+
 type xchatPublicKeysResponse struct {
 	Data struct {
-		Users []struct {
-			RestID string `json:"rest_id"`
-			Result struct {
-				PublicKeys struct {
-					Items []struct {
-						TokenMap struct {
-							ConfigJSON string            `json:"key_store_token_map_json"`
-							Tokens     []json.RawMessage `json:"token_map"`
-						} `json:"token_map"`
-					} `json:"public_keys_with_token_map"`
-					ManagedPIN bool `json:"is_managed_pin_user"`
-				} `json:"get_public_keys"`
-			} `json:"result"`
-		} `json:"user_results_by_rest_ids"`
+		Users []xchatPublicKeysUser `json:"user_results_by_rest_ids"`
 	} `json:"data"`
 	Errors []json.RawMessage `json:"errors"`
+}
+
+type xchatPublicKeysUser struct {
+	RestID string `json:"rest_id"`
+	Result struct {
+		PublicKeys struct {
+			Items      []xchatPublicKeyItem `json:"public_keys_with_token_map"`
+			ManagedPIN bool                 `json:"is_managed_pin_user"`
+		} `json:"get_public_keys"`
+	} `json:"result"`
+}
+
+type xchatPublicKeyItem struct {
+	Metadata struct {
+		Key struct {
+			IdentityPublicKeySignature string `json:"identity_public_key_signature"`
+			PublicKey                  string `json:"public_key"`
+			SigningPublicKey           string `json:"signing_public_key"`
+		} `json:"public_key"`
+		Version string `json:"version"`
+	} `json:"public_key_with_metadata"`
+	TokenMap xchatTokenMap `json:"token_map"`
+}
+
+type xchatTokenMap struct {
+	ConfigJSON string `json:"key_store_token_map_json"`
+	MaxGuesses int    `json:"max_guess_count"`
+	Tokens     []struct {
+		Key   string `json:"key"`
+		Value struct {
+			Token string `json:"token"`
+		} `json:"value"`
+	} `json:"token_map"`
 }
 
 type webMessage struct {
