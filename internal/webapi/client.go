@@ -19,13 +19,16 @@ import (
 
 const (
 	defaultBaseURL = "https://x.com/i/api"
+	xchatInboxURL  = "https://api.x.com/graphql/Gl7r1aY59L7jLBjVC98lqg/GetInitialXChatPageQuery"
 	webBearerToken = "AAAAAAAAAAAAAAAAAAAAANRILgAAAAAAnNwIzUejRCOuH5E6I8xnZz4puTs%3D1Zv7ttfk8LF81IUq16cHjhLTvJu4FA33AGWWjCpTnA"
 )
 
 type Client struct {
 	baseURL    string
+	xchatURL   string
 	httpClient *http.Client
 	self       api.User
+	clientUUID string
 }
 
 type InboxDiagnostics struct {
@@ -37,6 +40,10 @@ type InboxDiagnostics struct {
 	EntryCount         int
 	MessageEntryCount  int
 	UserCount          int
+	XChatItemCount     int
+	XChatEventCount    int
+	XChatKeyEventCount int
+	XChatErrorCount    int
 }
 
 func NewClient(httpClient *http.Client, self api.User) (*Client, error) {
@@ -46,11 +53,16 @@ func NewClient(httpClient *http.Client, self api.User) (*Client, error) {
 	if self.ID == "" || self.Username == "" {
 		return nil, errors.New("web session account identity is incomplete; run 'xdm auth web' again")
 	}
-	return &Client{baseURL: defaultBaseURL, httpClient: httpClient, self: self}, nil
+	clientUUID, err := newRequestID()
+	if err != nil {
+		return nil, fmt.Errorf("generating web client ID: %w", err)
+	}
+	return &Client{baseURL: defaultBaseURL, xchatURL: xchatInboxURL, httpClient: httpClient, self: self, clientUUID: strings.ToLower(clientUUID)}, nil
 }
 
 func newClient(baseURL string, httpClient *http.Client, self api.User) *Client {
-	return &Client{baseURL: strings.TrimRight(baseURL, "/"), httpClient: httpClient, self: self}
+	baseURL = strings.TrimRight(baseURL, "/")
+	return &Client{baseURL: baseURL, xchatURL: baseURL + "/graphql/GetInitialXChatPageQuery", httpClient: httpClient, self: self, clientUUID: "00000000-0000-4000-8000-000000000000"}
 }
 
 func (c *Client) Me(ctx context.Context) (api.User, error) {
@@ -106,7 +118,40 @@ func (c *Client) DiagnoseInbox(ctx context.Context) (InboxDiagnostics, error) {
 			diagnostics.MessageEntryCount++
 		}
 	}
+	xchat, err := c.getInitialXChatPage(ctx)
+	if err != nil {
+		return InboxDiagnostics{}, fmt.Errorf("checking XChat inbox: %w", err)
+	}
+	diagnostics.XChatItemCount = len(xchat.Data.Page.Items)
+	diagnostics.XChatErrorCount = len(xchat.Errors) + len(xchat.Data.Page.Errors)
+	for _, item := range xchat.Data.Page.Items {
+		diagnostics.XChatEventCount += len(item.LatestMessageEvents) + len(item.EncodedMessageEvents)
+		diagnostics.XChatKeyEventCount += len(item.LatestConversationKeyChangeEvents)
+	}
 	return diagnostics, nil
+}
+
+func (c *Client) getInitialXChatPage(ctx context.Context) (xchatInboxResponse, error) {
+	settings := struct {
+		InboxConversationEventLimit int `json:"inbox_conversation_event_limit"`
+		InboxConversationLimit      int `json:"inbox_conversation_limit"`
+		ConversationEventLimit      int `json:"conversation_event_limit"`
+		UserEventLimit              int `json:"user_event_limit"`
+	}{5, 20, 200, 500}
+	variables := struct {
+		QuerySettings      any `json:"query_settings"`
+		MessagePullVersion int `json:"message_pull_version"`
+	}{settings, 1761251295}
+	encoded, err := json.Marshal(variables)
+	if err != nil {
+		return xchatInboxResponse{}, err
+	}
+	values := url.Values{"variables": {string(encoded)}}
+	var response xchatInboxResponse
+	if err := c.doURL(ctx, http.MethodGet, c.xchatURL+"?"+values.Encode(), "https://x.com/messages", nil, &response); err != nil {
+		return xchatInboxResponse{}, err
+	}
+	return response, nil
 }
 
 func (c *Client) Send(ctx context.Context, conversationID, text string) (api.SendResult, error) {
@@ -144,6 +189,10 @@ func (c *Client) Send(ctx context.Context, conversationID, text string) (api.Sen
 }
 
 func (c *Client) do(ctx context.Context, method, path, referer string, body, target any) error {
+	return c.doURL(ctx, method, c.baseURL+path, referer, body, target)
+}
+
+func (c *Client) doURL(ctx context.Context, method, requestURL, referer string, body, target any) error {
 	var reader io.Reader
 	if body != nil {
 		encoded, err := json.Marshal(body)
@@ -152,7 +201,7 @@ func (c *Client) do(ctx context.Context, method, path, referer string, body, tar
 		}
 		reader = bytes.NewReader(encoded)
 	}
-	request, err := http.NewRequestWithContext(ctx, method, c.baseURL+path, reader)
+	request, err := http.NewRequestWithContext(ctx, method, requestURL, reader)
 	if err != nil {
 		return err
 	}
@@ -162,6 +211,9 @@ func (c *Client) do(ctx context.Context, method, path, referer string, body, tar
 	request.Header.Set("X-Twitter-Active-User", "yes")
 	request.Header.Set("X-Twitter-Auth-Type", "OAuth2Session")
 	request.Header.Set("X-Twitter-Client-Language", "en")
+	if c.clientUUID != "" {
+		request.Header.Set("X-Client-UUID", c.clientUUID)
+	}
 	if body != nil {
 		request.Header.Set("Content-Type", "application/json")
 		request.Header.Set("Origin", "https://x.com")

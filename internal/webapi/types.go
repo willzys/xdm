@@ -1,6 +1,7 @@
 package webapi
 
 import (
+	"encoding/json"
 	"errors"
 	"strings"
 
@@ -19,6 +20,20 @@ type inboxResponse struct {
 		} `json:"entries"`
 		Users map[string]webUser `json:"users"`
 	} `json:"inbox_initial_state"`
+}
+
+type xchatInboxResponse struct {
+	Data struct {
+		Page struct {
+			Items []struct {
+				LatestMessageEvents               []string `json:"latest_message_events"`
+				EncodedMessageEvents              []string `json:"encoded_message_events"`
+				LatestConversationKeyChangeEvents []string `json:"latest_conversation_key_change_events"`
+			} `json:"items"`
+			Errors []json.RawMessage `json:"errors"`
+		} `json:"get_initial_chat_page"`
+	} `json:"data"`
+	Errors []json.RawMessage `json:"errors"`
 }
 
 type webMessage struct {

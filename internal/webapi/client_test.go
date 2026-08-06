@@ -24,6 +24,14 @@ func TestClientImplementsWebDMFlow(t *testing.T) {
 			t.Error("request did not identify an active web user")
 		}
 		switch request.URL.Path {
+		case "/graphql/GetInitialXChatPageQuery":
+			if request.Header.Get("X-Client-UUID") == "" {
+				t.Error("XChat request did not include a client UUID")
+			}
+			if request.URL.Query().Get("variables") == "" {
+				t.Error("XChat request did not include variables")
+			}
+			writeJSON(t, response, `{"data":{"get_initial_chat_page":{"items":[{"latest_message_events":["encoded"],"latest_conversation_key_change_events":["key"]}]}}}`)
 		case "/1.1/dm/inbox_initial_state.json":
 			if request.URL.Query().Get("include_inbox_timelines") != "true" {
 				t.Error("inbox request did not include inbox timelines")
@@ -109,6 +117,9 @@ func TestClientImplementsWebDMFlow(t *testing.T) {
 	}
 	if diagnostics.EntryKinds["message"] != 1 {
 		t.Fatalf("entry kinds = %v", diagnostics.EntryKinds)
+	}
+	if diagnostics.XChatItemCount != 1 || diagnostics.XChatEventCount != 1 || diagnostics.XChatKeyEventCount != 1 || diagnostics.XChatErrorCount != 0 {
+		t.Fatalf("XChat diagnostics = %#v", diagnostics)
 	}
 	result, err := client.Send(context.Background(), "100-200", "  keep my spacing  ")
 	if err != nil {

@@ -159,6 +159,8 @@ func runAuthWebDiagnose(cmd *cobra.Command, args []string) error {
 		diagnostics.ConversationCount, diagnostics.EntryCount, diagnostics.MessageEntryCount, diagnostics.UserCount)
 	fmt.Fprintf(output, "Top-level fields: %s\n", strings.Join(diagnostics.TopLevelFields, ", "))
 	fmt.Fprintf(output, "Initial-state fields: %s\n", strings.Join(diagnostics.InitialStateFields, ", "))
+	fmt.Fprintf(output, "XChat items: %d; encoded events: %d; key events: %d; errors: %d\n",
+		diagnostics.XChatItemCount, diagnostics.XChatEventCount, diagnostics.XChatKeyEventCount, diagnostics.XChatErrorCount)
 	if len(diagnostics.EntryKinds) > 0 {
 		kinds := make([]string, 0, len(diagnostics.EntryKinds))
 		for kind, count := range diagnostics.EntryKinds {
