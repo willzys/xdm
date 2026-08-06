@@ -14,6 +14,7 @@ backend for text Direct Messages in existing conversations.
 - Go 1.26.5 or newer
 - Git
 - Chrome, Edge, or Chromium when using web authentication
+- Node.js 18 or newer and npm for the current XChat crypto runtime
 - An X Developer application when using the official backend
 
 ## Try the demo
@@ -48,6 +49,12 @@ Authenticate using a dedicated browser profile:
 go run . auth web --browser chrome
 ```
 
+Install the pinned official XChat crypto runtime once:
+
+```sh
+npm install --prefix ./internal/xchat/runtime
+```
+
 Sign in manually, wait for the X home timeline to load, and close that browser
 window. `xdm` reopens the same profile briefly to capture the authenticated
 session. Confirm that it was saved:
@@ -62,10 +69,18 @@ Then start the TUI with the experimental backend:
 go run . --backend web
 ```
 
+Enter the existing XChat PIN when prompted. The PIN is read without terminal
+echo and is not saved by `xdm`. Do not guess it: XChat limits failed recovery
+attempts.
+
 The current web backend can synchronize text messages from the initial inbox
 state and send text messages to existing conversations. Creating conversations,
 attachments, reactions, typing indicators, read receipts, and complete history
 pagination are not supported yet.
+
+The Node/npm requirement is temporary while the official Go XChat SDK does not
+ship a Windows native library. Release builds are expected to bundle a native
+crypto helper so end users do not need a JavaScript toolchain.
 
 Saved web sessions are encrypted with a key held by the operating-system
 keyring. Each web account uses a separate local message cache. Browser profile
