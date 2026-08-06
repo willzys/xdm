@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/url"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -60,6 +61,26 @@ func (s Session) DisplayName() string {
 		return s.Account.Name
 	}
 	return s.Key()
+}
+
+func (s Session) UserID() string {
+	if s.Account.ID != "" {
+		return s.Account.ID
+	}
+	for _, cookie := range s.Cookies {
+		if cookie.Name != "twid" || cookie.Value == "" || !allowedCookieDomain(cookie.Domain) {
+			continue
+		}
+		value, err := url.QueryUnescape(cookie.Value)
+		if err != nil {
+			continue
+		}
+		value = strings.TrimPrefix(value, "u=")
+		if _, err := strconv.ParseUint(value, 10, 64); err == nil {
+			return value
+		}
+	}
+	return ""
 }
 
 func (s Session) Validate(now time.Time) error {
