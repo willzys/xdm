@@ -32,18 +32,22 @@ type Client struct {
 }
 
 type InboxDiagnostics struct {
-	TopLevelFields     []string
-	InitialStateFields []string
-	EntryKinds         map[string]int
-	HasInitialState    bool
-	ConversationCount  int
-	EntryCount         int
-	MessageEntryCount  int
-	UserCount          int
-	XChatItemCount     int
-	XChatEventCount    int
-	XChatKeyEventCount int
-	XChatErrorCount    int
+	TopLevelFields      []string
+	InitialStateFields  []string
+	EntryKinds          map[string]int
+	HasInitialState     bool
+	ConversationCount   int
+	EntryCount          int
+	MessageEntryCount   int
+	UserCount           int
+	XChatItemCount      int
+	XChatEventCount     int
+	XChatKeyEventCount  int
+	XChatErrorCount     int
+	XChatMessageCount   int
+	XChatEncryptedCount int
+	XChatPlaintextCount int
+	XChatDecodeFailures int
 }
 
 func NewClient(httpClient *http.Client, self api.User) (*Client, error) {
@@ -127,6 +131,22 @@ func (c *Client) DiagnoseInbox(ctx context.Context) (InboxDiagnostics, error) {
 	for _, item := range xchat.Data.Page.Items {
 		diagnostics.XChatEventCount += len(item.LatestMessageEvents) + len(item.EncodedMessageEvents)
 		diagnostics.XChatKeyEventCount += len(item.LatestConversationKeyChangeEvents)
+		for _, encoded := range append(append([]string(nil), item.LatestMessageEvents...), item.EncodedMessageEvents...) {
+			message, encrypted, decodeErr := classifyXChatEvent(encoded)
+			if decodeErr != nil {
+				diagnostics.XChatDecodeFailures++
+				continue
+			}
+			if !message {
+				continue
+			}
+			diagnostics.XChatMessageCount++
+			if encrypted {
+				diagnostics.XChatEncryptedCount++
+			} else {
+				diagnostics.XChatPlaintextCount++
+			}
+		}
 	}
 	return diagnostics, nil
 }
