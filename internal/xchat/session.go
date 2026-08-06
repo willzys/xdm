@@ -111,10 +111,14 @@ func (s *Session) Decrypt(ctx context.Context, material webapi.XChatUnlockMateri
 	if err != nil {
 		return api.EventPage{}, err
 	}
-	if response.Errors > 0 {
-		return api.EventPage{}, fmt.Errorf("XChat could not decrypt %d inbox events", response.Errors)
-	}
+	return responseEventPage(material, response)
+}
+
+func responseEventPage(material webapi.XChatUnlockMaterial, response sessionResponse) (api.EventPage, error) {
 	if len(response.Events) == 0 && len(material.Events) > 0 {
+		if response.Errors > 0 {
+			return api.EventPage{}, fmt.Errorf("XChat could not decrypt any text messages: %d of %d inbox events failed", response.Errors, len(material.Events))
+		}
 		return api.EventPage{}, fmt.Errorf("XChat returned no text messages after decoding %d raw events (%d message events)", len(material.Events), response.MessageEvents)
 	}
 	var page api.EventPage
