@@ -3,12 +3,15 @@ package cmd
 import (
 	"errors"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
+	"github.com/willzys/xdm/internal/api"
 	"github.com/willzys/xdm/internal/auth"
 	"github.com/willzys/xdm/internal/config"
+	"github.com/willzys/xdm/internal/webapi"
 	"github.com/willzys/xdm/internal/webauth"
 )
 
@@ -108,6 +111,13 @@ var authUseCmd = &cobra.Command{
 	},
 }
 
+var authWebDiagnoseCmd = &cobra.Command{
+	Use:   "diagnose",
+	Short: "Inspect the saved web inbox response without exposing message data",
+	Args:  cobra.NoArgs,
+	RunE:  runAuthWebDiagnose,
+}
+
 func init() {
 	authCmd.Flags().StringVar(&authClientID, "client-id", "", "OAuth 2.0 Client ID from the X Developer Console")
 	authCmd.Flags().StringVar(&authRedirectURI, "redirect-uri", config.DefaultRedirectURI, "registered OAuth callback URI")
@@ -116,7 +126,48 @@ func init() {
 	authWebCmd.Flags().DurationVar(&authWebTimeout, "timeout", 5*time.Minute, "maximum time for browser login and session capture")
 	logoutCmd.Flags().StringVar(&logoutAccount, "account", "", "remove only this saved web account")
 	authCmd.AddCommand(authWebCmd, authStatusCmd, authUseCmd)
+	authWebCmd.AddCommand(authWebDiagnoseCmd)
 	rootCmd.AddCommand(authCmd, logoutCmd)
+}
+
+func runAuthWebDiagnose(cmd *cobra.Command, args []string) error {
+	store, err := webauth.NewStore()
+	if err != nil {
+		return err
+	}
+	session, err := store.LoadActive()
+	if err != nil {
+		return err
+	}
+	httpClient, err := webauth.NewHTTPClient(session, store)
+	if err != nil {
+		return err
+	}
+	client, err := webapi.NewClient(httpClient, api.User{
+		ID: session.UserID(), Name: session.Account.Name, Username: session.Account.Username,
+	})
+	if err != nil {
+		return err
+	}
+	diagnostics, err := client.DiagnoseInbox(cmd.Context())
+	if err != nil {
+		return err
+	}
+	output := cmd.OutOrStdout()
+	fmt.Fprintf(output, "Initial state: %t\n", diagnostics.HasInitialState)
+	fmt.Fprintf(output, "Conversations: %d; entries: %d; message entries: %d; users: %d\n",
+		diagnostics.ConversationCount, diagnostics.EntryCount, diagnostics.MessageEntryCount, diagnostics.UserCount)
+	fmt.Fprintf(output, "Top-level fields: %s\n", strings.Join(diagnostics.TopLevelFields, ", "))
+	fmt.Fprintf(output, "Initial-state fields: %s\n", strings.Join(diagnostics.InitialStateFields, ", "))
+	if len(diagnostics.EntryKinds) > 0 {
+		kinds := make([]string, 0, len(diagnostics.EntryKinds))
+		for kind, count := range diagnostics.EntryKinds {
+			kinds = append(kinds, fmt.Sprintf("%s=%d", kind, count))
+		}
+		sort.Strings(kinds)
+		fmt.Fprintf(output, "Entry kinds: %s\n", strings.Join(kinds, ", "))
+	}
+	return nil
 }
 
 func runAuth(cmd *cobra.Command, args []string) error {

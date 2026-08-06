@@ -100,6 +100,16 @@ func TestClientImplementsWebDMFlow(t *testing.T) {
 	if strings.Join(event.ParticipantIDs, ",") != "100,200" {
 		t.Fatalf("participant IDs = %v", event.ParticipantIDs)
 	}
+	diagnostics, err := client.DiagnoseInbox(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !diagnostics.HasInitialState || diagnostics.ConversationCount != 1 || diagnostics.EntryCount != 1 || diagnostics.MessageEntryCount != 1 || diagnostics.UserCount != 2 {
+		t.Fatalf("DiagnoseInbox() = %#v", diagnostics)
+	}
+	if diagnostics.EntryKinds["message"] != 1 {
+		t.Fatalf("entry kinds = %v", diagnostics.EntryKinds)
+	}
 	result, err := client.Send(context.Background(), "100-200", "  keep my spacing  ")
 	if err != nil {
 		t.Fatal(err)

@@ -9,6 +9,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -25,6 +26,17 @@ type Client struct {
 	baseURL    string
 	httpClient *http.Client
 	self       api.User
+}
+
+type InboxDiagnostics struct {
+	TopLevelFields     []string
+	InitialStateFields []string
+	EntryKinds         map[string]int
+	HasInitialState    bool
+	ConversationCount  int
+	EntryCount         int
+	MessageEntryCount  int
+	UserCount          int
 }
 
 func NewClient(httpClient *http.Client, self api.User) (*Client, error) {
@@ -55,6 +67,46 @@ func (c *Client) Events(ctx context.Context, paginationToken string) (api.EventP
 		return api.EventPage{}, err
 	}
 	return response.eventPage()
+}
+
+func (c *Client) DiagnoseInbox(ctx context.Context) (InboxDiagnostics, error) {
+	var topLevel map[string]json.RawMessage
+	path := "/1.1/dm/inbox_initial_state.json?" + inboxParameters().Encode()
+	if err := c.do(ctx, http.MethodGet, path, "https://x.com/messages", nil, &topLevel); err != nil {
+		return InboxDiagnostics{}, err
+	}
+	diagnostics := InboxDiagnostics{
+		TopLevelFields: sortedKeys(topLevel),
+		EntryKinds:     make(map[string]int),
+	}
+	rawState, ok := topLevel["inbox_initial_state"]
+	if !ok {
+		return diagnostics, nil
+	}
+	diagnostics.HasInitialState = true
+	var state map[string]json.RawMessage
+	if err := json.Unmarshal(rawState, &state); err != nil {
+		return InboxDiagnostics{}, errors.New("decoding X web inbox structure")
+	}
+	diagnostics.InitialStateFields = sortedKeys(state)
+	var conversations map[string]json.RawMessage
+	_ = json.Unmarshal(state["conversations"], &conversations)
+	diagnostics.ConversationCount = len(conversations)
+	var users map[string]json.RawMessage
+	_ = json.Unmarshal(state["users"], &users)
+	diagnostics.UserCount = len(users)
+	var entries []map[string]json.RawMessage
+	_ = json.Unmarshal(state["entries"], &entries)
+	diagnostics.EntryCount = len(entries)
+	for _, entry := range entries {
+		for kind := range entry {
+			diagnostics.EntryKinds[kind]++
+		}
+		if _, ok := entry["message"]; ok {
+			diagnostics.MessageEntryCount++
+		}
+	}
+	return diagnostics, nil
 }
 
 func (c *Client) Send(ctx context.Context, conversationID, text string) (api.SendResult, error) {
@@ -184,4 +236,13 @@ func parseWebTime(value string) time.Time {
 	}
 	parsed, _ := time.Parse(time.RFC3339Nano, value)
 	return parsed
+}
+
+func sortedKeys(values map[string]json.RawMessage) []string {
+	keys := make([]string, 0, len(values))
+	for key := range values {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	return keys
 }
