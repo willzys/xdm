@@ -40,8 +40,9 @@ type sessionResponse struct {
 		Text           string `json:"text"`
 		Verified       bool   `json:"verified"`
 	} `json:"events"`
-	Errors int    `json:"errors"`
-	Error  string `json:"error"`
+	MessageEvents int    `json:"messageEvents"`
+	Errors        int    `json:"errors"`
+	Error         string `json:"error"`
 }
 
 func NewSession(ctx context.Context, material webapi.XChatUnlockMaterial, pin []byte) (*Session, error) {
@@ -93,6 +94,9 @@ func (s *Session) Decrypt(ctx context.Context, material webapi.XChatUnlockMateri
 	}
 	if response.Errors > 0 {
 		return api.EventPage{}, fmt.Errorf("XChat could not decrypt %d inbox events", response.Errors)
+	}
+	if len(response.Events) == 0 && len(material.Events) > 0 {
+		return api.EventPage{}, fmt.Errorf("XChat returned no text messages after decoding %d raw events (%d message events)", len(material.Events), response.MessageEvents)
 	}
 	var page api.EventPage
 	page.Includes.Users = append(page.Includes.Users, material.Users...)

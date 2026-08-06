@@ -5,10 +5,14 @@ let chat;
 
 function eventPage(result) {
   const events = [];
+  let messageEvents = 0;
   for (const row of Array.isArray(result?.messages) ? result.messages : []) {
     const event = row?.event;
     if (String(event?.type ?? "").toLowerCase() !== "message") continue;
-    if (String(event?.content?.contentType ?? "").toLowerCase() !== "text") continue;
+    messageEvents++;
+    const contentType = String(event?.content?.contentType ?? "").toLowerCase();
+    if (contentType && contentType !== "text") continue;
+    if (typeof event?.content?.text !== "string") continue;
     events.push({
       id: String(event.id ?? event.sequenceId ?? ""),
       senderId: String(event.senderId ?? ""),
@@ -21,7 +25,7 @@ function eventPage(result) {
   const errors = result?.errors && typeof result.errors === "object"
     ? Object.keys(result.errors).length
     : 0;
-  return { events, errors };
+  return { events, messageEvents, errors };
 }
 
 async function unlock(input) {
@@ -42,7 +46,7 @@ async function unlock(input) {
     chat.setIdentity(input.material.userId, input.material.keyVersion);
     chat.setCacheKeys(true);
     chat.setSigningKeys(input.material.signingKeys ?? []);
-    return eventPage(chat.decryptEvents(input.material.events ?? []));
+    return { ready: true, events: [], messageEvents: 0, errors: 0 };
   } finally {
     pin.fill(0);
   }
