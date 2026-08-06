@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
+	"unicode"
 )
 
 const DefaultRedirectURI = "http://127.0.0.1:8743/callback"
@@ -78,11 +80,29 @@ func Save(cfg Config) error {
 }
 
 func CachePath() (string, error) {
+	return cachePath("messages.db")
+}
+
+func WebCachePath(account string) (string, error) {
+	account = strings.TrimSpace(account)
+	if account == "" {
+		return "", errors.New("web account is required for the message cache")
+	}
+	account = strings.Map(func(value rune) rune {
+		if unicode.IsLetter(value) || unicode.IsDigit(value) || value == '-' || value == '_' {
+			return unicode.ToLower(value)
+		}
+		return '_'
+	}, account)
+	return cachePath("messages-web-" + account + ".db")
+}
+
+func cachePath(filename string) (string, error) {
 	dir, err := os.UserCacheDir()
 	if err != nil {
 		return "", err
 	}
-	path := filepath.Join(dir, "xdm", "messages.db")
+	path := filepath.Join(dir, "xdm", filename)
 	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
 		return "", err
 	}
