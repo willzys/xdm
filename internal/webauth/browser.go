@@ -17,7 +17,10 @@ import (
 	"time"
 )
 
-const loginURL = "https://x.com/i/flow/login"
+const (
+	loginURL = "https://x.com/i/flow/login"
+	homeURL  = "https://x.com/home"
+)
 
 type LoginOptions struct {
 	Browser string
@@ -61,34 +64,28 @@ func Login(ctx context.Context, options LoginOptions) (Session, error) {
 	if err != nil {
 		return Session{}, err
 	}
-	root := filepath.Join(cacheDir, "xdm", "browser-auth")
-	if err := os.MkdirAll(root, 0700); err != nil {
+	profile := browserProfilePath(cacheDir, browser.name)
+	if err := os.MkdirAll(profile, 0700); err != nil {
 		return Session{}, err
 	}
-	profile, err := os.MkdirTemp(root, browser.name+"-*")
-	if err != nil {
-		return Session{}, err
-	}
-	defer os.RemoveAll(profile)
 
 	loginCtx, cancel := context.WithTimeout(ctx, options.Timeout)
 	defer cancel()
-	arguments := []string{
-		"--remote-debugging-port=0",
-		"--user-data-dir=" + profile,
-		"--no-first-run",
-		"--no-default-browser-check",
-		"--window-size=1280,900",
-		loginURL,
+	if err := bootstrapLogin(loginCtx, browser, profile, options.Output); err != nil {
+		return Session{}, err
 	}
-	command := exec.CommandContext(loginCtx, browser.path, arguments...)
+	if err := loginCtx.Err(); err != nil {
+		return Session{}, err
+	}
+
+	command := exec.CommandContext(loginCtx, browser.path, captureArguments(profile)...)
 	if err := command.Start(); err != nil {
 		return Session{}, fmt.Errorf("starting %s: %w", browser.name, err)
 	}
 	done := make(chan error, 1)
 	go func() { done <- command.Wait() }()
 
-	fmt.Fprintf(options.Output, "Opened an isolated %s profile. Sign in to X in that window.\n", browser.name)
+	fmt.Fprintf(options.Output, "Reopened the dedicated %s profile to capture the authenticated X session.\n", browser.name)
 	port, browserPath, err := waitForDevTools(loginCtx, profile, done)
 	if err != nil {
 		terminateBrowser(command, done)
@@ -147,6 +144,45 @@ func Login(ctx context.Context, options LoginOptions) (Session, error) {
 		case <-ticker.C:
 		}
 	}
+}
+
+func browserProfilePath(cacheDir, browser string) string {
+	return filepath.Join(cacheDir, "xdm", "browser-auth", browser)
+}
+
+func commonBrowserArguments(profile string) []string {
+	return []string{
+		"--user-data-dir=" + profile,
+		"--no-first-run",
+		"--no-default-browser-check",
+		"--window-size=1280,900",
+	}
+}
+
+func bootstrapArguments(profile string) []string {
+	return append(commonBrowserArguments(profile), loginURL)
+}
+
+func captureArguments(profile string) []string {
+	arguments := commonBrowserArguments(profile)
+	arguments = append(arguments, "--remote-debugging-port=0")
+	return append(arguments, homeURL)
+}
+
+func bootstrapLogin(ctx context.Context, browser browserSpec, profile string, output io.Writer) error {
+	command := exec.CommandContext(ctx, browser.path, bootstrapArguments(profile)...)
+	if err := command.Start(); err != nil {
+		return fmt.Errorf("starting %s login window: %w", browser.name, err)
+	}
+	fmt.Fprintf(output, "Opened a dedicated %s profile without remote debugging.\n", browser.name)
+	fmt.Fprintln(output, "Sign in to X, confirm the home timeline loads, then close that browser window to continue.")
+	if err := command.Wait(); err != nil {
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+		return fmt.Errorf("waiting for %s login window: %w", browser.name, err)
+	}
+	return nil
 }
 
 func findBrowser(requested string) (browserSpec, error) {
