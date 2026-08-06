@@ -42,6 +42,20 @@ func TestClassifyXChatEvent(t *testing.T) {
 	}
 }
 
+func TestXChatEventRoute(t *testing.T) {
+	encoded := base64.StdEncoding.EncodeToString(thriftTestStruct(
+		thriftTestField(thriftString, 4, thriftTestString("100:200")),
+		thriftTestField(thriftString, 5, thriftTestString("conversation-token")),
+	))
+	conversationID, token, err := xchatEventRoute(encoded)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if conversationID != "100:200" || token != "conversation-token" {
+		t.Fatalf("xchatEventRoute() = %q, %q", conversationID, token)
+	}
+}
+
 func thriftTestStruct(fields ...[]byte) []byte {
 	return append(bytes.Join(fields, nil), thriftStop)
 }

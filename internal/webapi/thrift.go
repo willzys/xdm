@@ -72,6 +72,24 @@ func classifyXChatEvent(encoded string) (message, encrypted bool, err error) {
 	return true, false, nil
 }
 
+func xchatEventRoute(encoded string) (conversationID, conversationToken string, err error) {
+	data, err := decodeBase64(encoded)
+	if err != nil {
+		return "", "", err
+	}
+	root, err := (&thriftReader{data: data}).readStruct(0)
+	if err != nil {
+		return "", "", err
+	}
+	if value, ok := thriftField(root, 4, thriftString); ok {
+		conversationID = string(value.bytes)
+	}
+	if value, ok := thriftField(root, 5, thriftString); ok {
+		conversationToken = string(value.bytes)
+	}
+	return conversationID, conversationToken, nil
+}
+
 func thriftField(value thriftValue, id int16, kind byte) (thriftValue, bool) {
 	field, ok := value.fields[id]
 	return field, ok && field.kind == kind
