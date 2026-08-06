@@ -21,6 +21,7 @@ const (
 	defaultBaseURL = "https://x.com/i/api"
 	xchatInboxURL  = "https://api.x.com/graphql/Gl7r1aY59L7jLBjVC98lqg/GetInitialXChatPageQuery"
 	xchatKeysURL   = "https://api.x.com/graphql/RQAjOoIX9dIsHoVjuVV0Iw/GetPublicKeys"
+	xchatSendURL   = "https://api.x.com/graphql/LkAIEchf8AGj-WgeLoTVcw/SendMessageMutation"
 	webBearerToken = "AAAAAAAAAAAAAAAAAAAAANRILgAAAAAAnNwIzUejRCOuH5E6I8xnZz4puTs%3D1Zv7ttfk8LF81IUq16cHjhLTvJu4FA33AGWWjCpTnA"
 )
 
@@ -28,6 +29,7 @@ type Client struct {
 	baseURL        string
 	xchatURL       string
 	xchatKeysURL   string
+	xchatSendURL   string
 	httpClient     *http.Client
 	self           api.User
 	clientUUID     string
@@ -36,6 +38,13 @@ type Client struct {
 
 type XChatDecryptor interface {
 	Decrypt(context.Context, XChatUnlockMaterial) (api.EventPage, error)
+	EncryptMessage(context.Context, string, string) (XChatEncryptedMessage, error)
+}
+
+type XChatEncryptedMessage struct {
+	MessageID                    string `json:"messageId"`
+	EncodedMessageCreateEvent    string `json:"encodedMessageCreateEvent"`
+	EncodedMessageEventSignature string `json:"encodedMessageEventSignature"`
 }
 
 type InboxDiagnostics struct {
@@ -62,14 +71,15 @@ type InboxDiagnostics struct {
 }
 
 type XChatUnlockMaterial struct {
-	UserID         string                 `json:"userId"`
-	KeyVersion     string                 `json:"keyVersion"`
-	JuiceboxConfig json.RawMessage        `json:"juiceboxConfig"`
-	RealmTokens    map[string]string      `json:"realmTokens"`
-	Events         []string               `json:"events"`
-	SigningKeys    []XChatSigningKeyEntry `json:"signingKeys"`
-	Users          []api.User             `json:"users"`
-	Participants   map[string][]string    `json:"participants"`
+	UserID             string                 `json:"userId"`
+	KeyVersion         string                 `json:"keyVersion"`
+	JuiceboxConfig     json.RawMessage        `json:"juiceboxConfig"`
+	RealmTokens        map[string]string      `json:"realmTokens"`
+	Events             []string               `json:"events"`
+	SigningKeys        []XChatSigningKeyEntry `json:"signingKeys"`
+	Users              []api.User             `json:"users"`
+	Participants       map[string][]string    `json:"participants"`
+	ConversationTokens map[string]string      `json:"conversationTokens"`
 }
 
 type XChatSigningKeyEntry struct {
@@ -91,12 +101,12 @@ func NewClient(httpClient *http.Client, self api.User) (*Client, error) {
 	if err != nil {
 		return nil, fmt.Errorf("generating web client ID: %w", err)
 	}
-	return &Client{baseURL: defaultBaseURL, xchatURL: xchatInboxURL, xchatKeysURL: xchatKeysURL, httpClient: httpClient, self: self, clientUUID: strings.ToLower(clientUUID)}, nil
+	return &Client{baseURL: defaultBaseURL, xchatURL: xchatInboxURL, xchatKeysURL: xchatKeysURL, xchatSendURL: xchatSendURL, httpClient: httpClient, self: self, clientUUID: strings.ToLower(clientUUID)}, nil
 }
 
 func newClient(baseURL string, httpClient *http.Client, self api.User) *Client {
 	baseURL = strings.TrimRight(baseURL, "/")
-	return &Client{baseURL: baseURL, xchatURL: baseURL + "/graphql/GetInitialXChatPageQuery", xchatKeysURL: baseURL + "/graphql/GetPublicKeys", httpClient: httpClient, self: self, clientUUID: "00000000-0000-4000-8000-000000000000"}
+	return &Client{baseURL: baseURL, xchatURL: baseURL + "/graphql/GetInitialXChatPageQuery", xchatKeysURL: baseURL + "/graphql/GetPublicKeys", xchatSendURL: baseURL + "/graphql/SendMessageMutation", httpClient: httpClient, self: self, clientUUID: "00000000-0000-4000-8000-000000000000"}
 }
 
 func (c *Client) Me(ctx context.Context) (api.User, error) {
@@ -236,6 +246,7 @@ func (c *Client) PrepareXChatUnlock(ctx context.Context) (XChatUnlockMaterial, e
 	}
 	userSet := map[string]struct{}{c.self.ID: {}}
 	seenEvents := make(map[string]struct{})
+	conversationTokens := make(map[string]string)
 	var events []string
 	addEvents := func(values []string) {
 		for _, value := range values {
@@ -247,6 +258,10 @@ func (c *Client) PrepareXChatUnlock(ctx context.Context) (XChatUnlockMaterial, e
 			}
 			seenEvents[value] = struct{}{}
 			events = append(events, value)
+			conversationID, token, routeErr := xchatEventRoute(value)
+			if routeErr == nil && conversationID != "" && token != "" {
+				conversationTokens[conversationID] = token
+			}
 		}
 	}
 	for _, item := range inbox.Data.Page.Items {
@@ -280,7 +295,7 @@ func (c *Client) PrepareXChatUnlock(ctx context.Context) (XChatUnlockMaterial, e
 	}
 	material := XChatUnlockMaterial{
 		UserID: c.self.ID, Events: events, RealmTokens: make(map[string]string),
-		Participants: make(map[string][]string),
+		Participants: make(map[string][]string), ConversationTokens: conversationTokens,
 	}
 	userDetails := make(map[string]api.User)
 	for _, item := range inbox.Data.Page.Items {
@@ -380,7 +395,7 @@ func (c *Client) getInitialXChatPage(ctx context.Context) (xchatInboxResponse, e
 
 func (c *Client) Send(ctx context.Context, conversationID, text string) (api.SendResult, error) {
 	if c.xchatDecryptor != nil {
-		return api.SendResult{}, errors.New("sending encrypted XChat messages is not implemented yet")
+		return c.sendXChatMessage(ctx, conversationID, text)
 	}
 	conversationID = strings.TrimSpace(conversationID)
 	if conversationID == "" {
@@ -413,6 +428,75 @@ func (c *Client) Send(ctx context.Context, conversationID, text string) (api.Sen
 		return api.SendResult{}, err
 	}
 	return response.result(conversationID)
+}
+
+func (c *Client) sendXChatMessage(ctx context.Context, conversationID, messageText string) (api.SendResult, error) {
+	conversationID = strings.TrimSpace(conversationID)
+	if conversationID == "" {
+		return api.SendResult{}, errors.New("conversation ID is required")
+	}
+	if strings.TrimSpace(messageText) == "" {
+		return api.SendResult{}, errors.New("message text is required")
+	}
+	material, err := c.PrepareXChatUnlock(ctx)
+	if err != nil {
+		return api.SendResult{}, fmt.Errorf("refreshing XChat conversation metadata: %w", err)
+	}
+	token := material.ConversationTokens[conversationID]
+	if token == "" {
+		token = material.ConversationTokens[strings.ReplaceAll(conversationID, "-", ":")]
+	}
+	if token == "" {
+		return api.SendResult{}, errors.New("XChat conversation token was not found; sync the inbox and try again")
+	}
+	encrypted, err := c.xchatDecryptor.EncryptMessage(ctx, conversationID, messageText)
+	if err != nil {
+		return api.SendResult{}, fmt.Errorf("encrypting XChat message: %w", err)
+	}
+	payload := struct {
+		OperationName string `json:"operationName"`
+		Variables     struct {
+			ConversationID               string `json:"conversation_id"`
+			MessageID                    string `json:"message_id"`
+			ConversationToken            string `json:"conversation_token"`
+			EncodedMessageCreateEvent    string `json:"encoded_message_create_event"`
+			EncodedMessageEventSignature string `json:"encoded_message_event_signature"`
+		} `json:"variables"`
+		Extensions struct {
+			PersistedQuery struct {
+				Version int    `json:"version"`
+				Hash    string `json:"sha256Hash"`
+			} `json:"persistedQuery"`
+			ClientLibrary struct {
+				Name    string `json:"name"`
+				Version string `json:"version"`
+			} `json:"clientLibrary"`
+		} `json:"extensions"`
+	}{OperationName: "SendMessageMutation"}
+	payload.Variables.ConversationID = conversationID
+	payload.Variables.MessageID = encrypted.MessageID
+	payload.Variables.ConversationToken = token
+	payload.Variables.EncodedMessageCreateEvent = encrypted.EncodedMessageCreateEvent
+	payload.Variables.EncodedMessageEventSignature = encrypted.EncodedMessageEventSignature
+	payload.Extensions.PersistedQuery.Version = 1
+	payload.Extensions.PersistedQuery.Hash = "LkAIEchf8AGj-WgeLoTVcw"
+	payload.Extensions.ClientLibrary.Name = "apollo-kotlin"
+	payload.Extensions.ClientLibrary.Version = "4.3.3"
+	var response xchatSendResponse
+	referer := "https://x.com/messages/" + url.PathEscape(conversationID)
+	if err := c.doURL(ctx, http.MethodPost, c.xchatSendURL, referer, payload, &response); err != nil {
+		return api.SendResult{}, err
+	}
+	if len(response.Errors) > 0 {
+		return api.SendResult{}, fmt.Errorf("XChat send mutation failed: %s", response.Errors[0].Message)
+	}
+	if response.Data.Result.EncodedMessageEvent == "" {
+		return api.SendResult{}, errors.New("XChat send mutation returned no message event")
+	}
+	var result api.SendResult
+	result.Data.ConversationID = conversationID
+	result.Data.EventID = encrypted.MessageID
+	return result, nil
 }
 
 func (c *Client) do(ctx context.Context, method, path, referer string, body, target any) error {

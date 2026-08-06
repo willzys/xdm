@@ -2,6 +2,7 @@ package webapi
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -168,6 +169,67 @@ func TestClientDoesNotExposeUnexpectedErrorBodies(t *testing.T) {
 	if strings.Contains(err.Error(), "private response content") {
 		t.Fatalf("error exposed response body: %v", err)
 	}
+}
+
+func TestClientSendsEncryptedXChatMessage(t *testing.T) {
+	routedEvent := base64.StdEncoding.EncodeToString(thriftTestStruct(
+		thriftTestField(thriftString, 4, thriftTestString("100:200")),
+		thriftTestField(thriftString, 5, thriftTestString("conversation-token")),
+	))
+	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		switch request.URL.Path {
+		case "/graphql/GetInitialXChatPageQuery":
+			writeJSON(t, response, fmt.Sprintf(`{"data":{"get_initial_chat_page":{"items":[{"latest_message_events":[%q],"conversation_detail":{"conversation_id":"100:200","participants_results":[{"rest_id":"100"},{"rest_id":"200"}]}}]}}}`, routedEvent))
+		case "/graphql/GetPublicKeys":
+			writeJSON(t, response, `{"data":{"user_results_by_rest_ids":[{"rest_id":"100","result":{"get_public_keys":{"public_keys_with_token_map":[{"public_key_with_metadata":{"version":"1","public_key":{"public_key":"identity","signing_public_key":"signing","identity_public_key_signature":"binding"}},"token_map":{"key_store_token_map_json":"{}","token_map":[{"key":"aa","value":{"token":"realm-token"}}]}}]}}}]}}`)
+		case "/graphql/SendMessageMutation":
+			var payload struct {
+				OperationName string `json:"operationName"`
+				Variables     struct {
+					ConversationID               string `json:"conversation_id"`
+					MessageID                    string `json:"message_id"`
+					ConversationToken            string `json:"conversation_token"`
+					EncodedMessageCreateEvent    string `json:"encoded_message_create_event"`
+					EncodedMessageEventSignature string `json:"encoded_message_event_signature"`
+				} `json:"variables"`
+			}
+			if err := json.NewDecoder(request.Body).Decode(&payload); err != nil {
+				t.Fatal(err)
+			}
+			if payload.OperationName != "SendMessageMutation" || payload.Variables.ConversationID != "100:200" || payload.Variables.ConversationToken != "conversation-token" {
+				t.Fatalf("send payload = %#v", payload)
+			}
+			if payload.Variables.MessageID != "message-id" || payload.Variables.EncodedMessageCreateEvent != "encrypted" || payload.Variables.EncodedMessageEventSignature != "signature" {
+				t.Fatalf("encrypted send payload = %#v", payload.Variables)
+			}
+			writeJSON(t, response, `{"data":{"xchat_send_create_message_event":{"encoded_message_event":"confirmed"}}}`)
+		default:
+			http.NotFound(response, request)
+		}
+	}))
+	defer server.Close()
+
+	client := newClient(server.URL, server.Client(), api.User{ID: "100", Username: "example"})
+	client.SetXChatDecryptor(fakeXChatCrypto{})
+	result, err := client.Send(context.Background(), "100:200", "hello encrypted")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Data.EventID != "message-id" || result.Data.ConversationID != "100:200" {
+		t.Fatalf("Send() = %#v", result)
+	}
+}
+
+type fakeXChatCrypto struct{}
+
+func (fakeXChatCrypto) Decrypt(context.Context, XChatUnlockMaterial) (api.EventPage, error) {
+	return api.EventPage{}, nil
+}
+
+func (fakeXChatCrypto) EncryptMessage(context.Context, string, string) (XChatEncryptedMessage, error) {
+	return XChatEncryptedMessage{
+		MessageID: "message-id", EncodedMessageCreateEvent: "encrypted", EncodedMessageEventSignature: "signature",
+	}, nil
 }
 
 func writeJSON(t *testing.T, response http.ResponseWriter, value string) {

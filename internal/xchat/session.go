@@ -26,9 +26,11 @@ type Session struct {
 }
 
 type sessionRequest struct {
-	Operation string                      `json:"op"`
-	Material  *webapi.XChatUnlockMaterial `json:"material,omitempty"`
-	PIN       []byte                      `json:"pin,omitempty"`
+	Operation      string                      `json:"op"`
+	Material       *webapi.XChatUnlockMaterial `json:"material,omitempty"`
+	PIN            []byte                      `json:"pin,omitempty"`
+	ConversationID string                      `json:"conversationId,omitempty"`
+	Text           string                      `json:"text,omitempty"`
 }
 
 type sessionResponse struct {
@@ -40,9 +42,26 @@ type sessionResponse struct {
 		Text           string `json:"text"`
 		Verified       bool   `json:"verified"`
 	} `json:"events"`
-	MessageEvents int    `json:"messageEvents"`
-	Errors        int    `json:"errors"`
-	Error         string `json:"error"`
+	MessageEvents int                          `json:"messageEvents"`
+	Errors        int                          `json:"errors"`
+	Error         string                       `json:"error"`
+	Send          webapi.XChatEncryptedMessage `json:"send"`
+}
+
+func (s *Session) EncryptMessage(ctx context.Context, conversationID, text string) (webapi.XChatEncryptedMessage, error) {
+	select {
+	case <-ctx.Done():
+		return webapi.XChatEncryptedMessage{}, ctx.Err()
+	default:
+	}
+	response, err := s.exchange(sessionRequest{Operation: "encrypt", ConversationID: conversationID, Text: text})
+	if err != nil {
+		return webapi.XChatEncryptedMessage{}, err
+	}
+	if response.Send.MessageID == "" || response.Send.EncodedMessageCreateEvent == "" || response.Send.EncodedMessageEventSignature == "" {
+		return webapi.XChatEncryptedMessage{}, errors.New("XChat crypto session returned an incomplete send payload")
+	}
+	return response.Send, nil
 }
 
 func NewSession(ctx context.Context, material webapi.XChatUnlockMaterial, pin []byte) (*Session, error) {

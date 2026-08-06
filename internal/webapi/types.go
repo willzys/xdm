@@ -62,6 +62,17 @@ type xchatPublicKeysResponse struct {
 	Errors []json.RawMessage `json:"errors"`
 }
 
+type xchatSendResponse struct {
+	Data struct {
+		Result struct {
+			EncodedMessageEvent string `json:"encoded_message_event"`
+		} `json:"xchat_send_create_message_event"`
+	} `json:"data"`
+	Errors []struct {
+		Message string `json:"message"`
+	} `json:"errors"`
+}
+
 type xchatPublicKeysUser struct {
 	RestID string `json:"rest_id"`
 	Result struct {

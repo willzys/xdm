@@ -58,12 +58,31 @@ function decrypt(input) {
   return eventPage(chat.decryptEvents(input.material.events ?? []));
 }
 
+function encrypt(input) {
+  if (!chat) throw new Error("XChat session is locked");
+  const payload = chat.encryptMessage({
+    conversationId: input.conversationId,
+    text: input.text,
+  });
+  return {
+    send: {
+      messageId: payload.messageId,
+      encodedMessageCreateEvent: payload.encryptedContent,
+      encodedMessageEventSignature: payload.encodedEventSignature,
+    },
+  };
+}
+
 const lines = createInterface({ input: process.stdin, crlfDelay: Infinity });
 for await (const line of lines) {
   try {
     const input = JSON.parse(line);
     if (input.op === "close") break;
-    const result = input.op === "unlock" ? await unlock(input) : decrypt(input);
+    let result;
+    if (input.op === "unlock") result = await unlock(input);
+    else if (input.op === "decrypt") result = decrypt(input);
+    else if (input.op === "encrypt") result = encrypt(input);
+    else throw new Error(`unsupported XChat operation ${input.op}`);
     process.stdout.write(`${JSON.stringify(result)}\n`);
   } catch (error) {
     process.stdout.write(`${JSON.stringify({ error: error instanceof Error ? error.message : String(error) })}\n`);
