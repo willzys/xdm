@@ -36,6 +36,26 @@ type xchatInboxResponse struct {
 	Errors []json.RawMessage `json:"errors"`
 }
 
+type xchatPublicKeysResponse struct {
+	Data struct {
+		Users []struct {
+			RestID string `json:"rest_id"`
+			Result struct {
+				PublicKeys struct {
+					Items []struct {
+						TokenMap struct {
+							ConfigJSON string            `json:"key_store_token_map_json"`
+							Tokens     []json.RawMessage `json:"token_map"`
+						} `json:"token_map"`
+					} `json:"public_keys_with_token_map"`
+					ManagedPIN bool `json:"is_managed_pin_user"`
+				} `json:"get_public_keys"`
+			} `json:"result"`
+		} `json:"user_results_by_rest_ids"`
+	} `json:"data"`
+	Errors []json.RawMessage `json:"errors"`
+}
+
 type webMessage struct {
 	ID             string `json:"id"`
 	Time           string `json:"time"`

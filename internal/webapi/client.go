@@ -20,34 +20,40 @@ import (
 const (
 	defaultBaseURL = "https://x.com/i/api"
 	xchatInboxURL  = "https://api.x.com/graphql/Gl7r1aY59L7jLBjVC98lqg/GetInitialXChatPageQuery"
+	xchatKeysURL   = "https://api.x.com/graphql/RQAjOoIX9dIsHoVjuVV0Iw/GetPublicKeys"
 	webBearerToken = "AAAAAAAAAAAAAAAAAAAAANRILgAAAAAAnNwIzUejRCOuH5E6I8xnZz4puTs%3D1Zv7ttfk8LF81IUq16cHjhLTvJu4FA33AGWWjCpTnA"
 )
 
 type Client struct {
-	baseURL    string
-	xchatURL   string
-	httpClient *http.Client
-	self       api.User
-	clientUUID string
+	baseURL      string
+	xchatURL     string
+	xchatKeysURL string
+	httpClient   *http.Client
+	self         api.User
+	clientUUID   string
 }
 
 type InboxDiagnostics struct {
-	TopLevelFields      []string
-	InitialStateFields  []string
-	EntryKinds          map[string]int
-	HasInitialState     bool
-	ConversationCount   int
-	EntryCount          int
-	MessageEntryCount   int
-	UserCount           int
-	XChatItemCount      int
-	XChatEventCount     int
-	XChatKeyEventCount  int
-	XChatErrorCount     int
-	XChatMessageCount   int
-	XChatEncryptedCount int
-	XChatPlaintextCount int
-	XChatDecodeFailures int
+	TopLevelFields         []string
+	InitialStateFields     []string
+	EntryKinds             map[string]int
+	HasInitialState        bool
+	ConversationCount      int
+	EntryCount             int
+	MessageEntryCount      int
+	UserCount              int
+	XChatItemCount         int
+	XChatEventCount        int
+	XChatKeyEventCount     int
+	XChatErrorCount        int
+	XChatMessageCount      int
+	XChatEncryptedCount    int
+	XChatPlaintextCount    int
+	XChatDecodeFailures    int
+	XChatPublicKeyVersions int
+	XChatJuiceboxRealms    int
+	XChatHasJuiceboxConfig bool
+	XChatManagedPIN        bool
 }
 
 func NewClient(httpClient *http.Client, self api.User) (*Client, error) {
@@ -61,12 +67,12 @@ func NewClient(httpClient *http.Client, self api.User) (*Client, error) {
 	if err != nil {
 		return nil, fmt.Errorf("generating web client ID: %w", err)
 	}
-	return &Client{baseURL: defaultBaseURL, xchatURL: xchatInboxURL, httpClient: httpClient, self: self, clientUUID: strings.ToLower(clientUUID)}, nil
+	return &Client{baseURL: defaultBaseURL, xchatURL: xchatInboxURL, xchatKeysURL: xchatKeysURL, httpClient: httpClient, self: self, clientUUID: strings.ToLower(clientUUID)}, nil
 }
 
 func newClient(baseURL string, httpClient *http.Client, self api.User) *Client {
 	baseURL = strings.TrimRight(baseURL, "/")
-	return &Client{baseURL: baseURL, xchatURL: baseURL + "/graphql/GetInitialXChatPageQuery", httpClient: httpClient, self: self, clientUUID: "00000000-0000-4000-8000-000000000000"}
+	return &Client{baseURL: baseURL, xchatURL: baseURL + "/graphql/GetInitialXChatPageQuery", xchatKeysURL: baseURL + "/graphql/GetPublicKeys", httpClient: httpClient, self: self, clientUUID: "00000000-0000-4000-8000-000000000000"}
 }
 
 func (c *Client) Me(ctx context.Context) (api.User, error) {
@@ -148,7 +154,41 @@ func (c *Client) DiagnoseInbox(ctx context.Context) (InboxDiagnostics, error) {
 			}
 		}
 	}
+	keys, err := c.getXChatPublicKeys(ctx, []string{c.self.ID})
+	if err != nil {
+		return InboxDiagnostics{}, fmt.Errorf("checking XChat public keys: %w", err)
+	}
+	for _, user := range keys.Data.Users {
+		if user.RestID != c.self.ID {
+			continue
+		}
+		diagnostics.XChatManagedPIN = user.Result.PublicKeys.ManagedPIN
+		for _, item := range user.Result.PublicKeys.Items {
+			diagnostics.XChatPublicKeyVersions++
+			diagnostics.XChatJuiceboxRealms += len(item.TokenMap.Tokens)
+			if item.TokenMap.ConfigJSON != "" {
+				diagnostics.XChatHasJuiceboxConfig = true
+			}
+		}
+	}
 	return diagnostics, nil
+}
+
+func (c *Client) getXChatPublicKeys(ctx context.Context, userIDs []string) (xchatPublicKeysResponse, error) {
+	variables := struct {
+		IDs                   []string `json:"ids"`
+		IncludeJuiceboxTokens bool     `json:"include_juicebox_tokens"`
+	}{userIDs, true}
+	encoded, err := json.Marshal(variables)
+	if err != nil {
+		return xchatPublicKeysResponse{}, err
+	}
+	values := url.Values{"variables": {string(encoded)}}
+	var response xchatPublicKeysResponse
+	if err := c.doURL(ctx, http.MethodGet, c.xchatKeysURL+"?"+values.Encode(), "https://x.com/messages", nil, &response); err != nil {
+		return xchatPublicKeysResponse{}, err
+	}
+	return response, nil
 }
 
 func (c *Client) getInitialXChatPage(ctx context.Context) (xchatInboxResponse, error) {

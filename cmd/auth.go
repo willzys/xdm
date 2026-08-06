@@ -163,6 +163,9 @@ func runAuthWebDiagnose(cmd *cobra.Command, args []string) error {
 		diagnostics.XChatItemCount, diagnostics.XChatEventCount, diagnostics.XChatKeyEventCount, diagnostics.XChatErrorCount)
 	fmt.Fprintf(output, "XChat messages: %d; encrypted: %d; plaintext: %d; decode failures: %d\n",
 		diagnostics.XChatMessageCount, diagnostics.XChatEncryptedCount, diagnostics.XChatPlaintextCount, diagnostics.XChatDecodeFailures)
+	fmt.Fprintf(output, "XChat key versions: %d; Juicebox realms: %d; config: %t; managed PIN: %t\n",
+		diagnostics.XChatPublicKeyVersions, diagnostics.XChatJuiceboxRealms,
+		diagnostics.XChatHasJuiceboxConfig, diagnostics.XChatManagedPIN)
 	if len(diagnostics.EntryKinds) > 0 {
 		kinds := make([]string, 0, len(diagnostics.EntryKinds))
 		for kind, count := range diagnostics.EntryKinds {
