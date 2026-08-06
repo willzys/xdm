@@ -3,16 +3,19 @@ package cmd
 import (
 	"errors"
 	"fmt"
+	"os"
 	"sort"
 	"strings"
 	"time"
 
+	"github.com/charmbracelet/x/term"
 	"github.com/spf13/cobra"
 	"github.com/willzys/xdm/internal/api"
 	"github.com/willzys/xdm/internal/auth"
 	"github.com/willzys/xdm/internal/config"
 	"github.com/willzys/xdm/internal/webapi"
 	"github.com/willzys/xdm/internal/webauth"
+	"github.com/willzys/xdm/internal/xchat"
 )
 
 var (
@@ -118,6 +121,13 @@ var authWebDiagnoseCmd = &cobra.Command{
 	RunE:  runAuthWebDiagnose,
 }
 
+var authWebUnlockCmd = &cobra.Command{
+	Use:   "unlock",
+	Short: "Verify the XChat PIN and encrypted inbox without exposing messages",
+	Args:  cobra.NoArgs,
+	RunE:  runAuthWebUnlock,
+}
+
 func init() {
 	authCmd.Flags().StringVar(&authClientID, "client-id", "", "OAuth 2.0 Client ID from the X Developer Console")
 	authCmd.Flags().StringVar(&authRedirectURI, "redirect-uri", config.DefaultRedirectURI, "registered OAuth callback URI")
@@ -126,8 +136,52 @@ func init() {
 	authWebCmd.Flags().DurationVar(&authWebTimeout, "timeout", 5*time.Minute, "maximum time for browser login and session capture")
 	logoutCmd.Flags().StringVar(&logoutAccount, "account", "", "remove only this saved web account")
 	authCmd.AddCommand(authWebCmd, authStatusCmd, authUseCmd)
-	authWebCmd.AddCommand(authWebDiagnoseCmd)
+	authWebCmd.AddCommand(authWebDiagnoseCmd, authWebUnlockCmd)
 	rootCmd.AddCommand(authCmd, logoutCmd)
+}
+
+func runAuthWebUnlock(cmd *cobra.Command, args []string) error {
+	if !term.IsTerminal(os.Stdin.Fd()) {
+		return errors.New("XChat PIN must be entered from an interactive terminal")
+	}
+	store, err := webauth.NewStore()
+	if err != nil {
+		return err
+	}
+	session, err := store.LoadActive()
+	if err != nil {
+		return err
+	}
+	httpClient, err := webauth.NewHTTPClient(session, store)
+	if err != nil {
+		return err
+	}
+	client, err := webapi.NewClient(httpClient, api.User{
+		ID: session.UserID(), Name: session.Account.Name, Username: session.Account.Username,
+	})
+	if err != nil {
+		return err
+	}
+	material, err := client.PrepareXChatUnlock(cmd.Context())
+	if err != nil {
+		return err
+	}
+	output := cmd.ErrOrStderr()
+	fmt.Fprintln(output, "Enter your existing XChat PIN. Do not guess: failed attempts are limited.")
+	fmt.Fprint(output, "XChat PIN: ")
+	pin, err := term.ReadPassword(os.Stdin.Fd())
+	fmt.Fprintln(output)
+	if err != nil {
+		return fmt.Errorf("reading XChat PIN: %w", err)
+	}
+	defer clear(pin)
+	diagnostics, err := xchat.Diagnose(cmd.Context(), material, pin)
+	if err != nil {
+		return fmt.Errorf("unlocking XChat: %w", err)
+	}
+	fmt.Fprintf(cmd.OutOrStdout(), "XChat unlocked; decrypted messages: %d; decoded events: %d; errors: %d\n",
+		diagnostics.Messages, diagnostics.Events, diagnostics.Errors)
+	return nil
 }
 
 func runAuthWebDiagnose(cmd *cobra.Command, args []string) error {
