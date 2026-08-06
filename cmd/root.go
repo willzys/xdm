@@ -15,6 +15,7 @@ import (
 	"github.com/willzys/xdm/internal/tui"
 	"github.com/willzys/xdm/internal/webapi"
 	"github.com/willzys/xdm/internal/webauth"
+	"github.com/willzys/xdm/internal/xchat"
 )
 
 var backend string
@@ -66,12 +67,28 @@ func run(cmd *cobra.Command, args []string) error {
 		if clientErr != nil {
 			return clientErr
 		}
-		client, clientErr = webapi.NewClient(httpClient, api.User{
+		webClient, clientErr := webapi.NewClient(httpClient, api.User{
 			ID: session.UserID(), Name: session.Account.Name, Username: session.Account.Username,
 		})
 		if clientErr != nil {
 			return clientErr
 		}
+		material, materialErr := webClient.PrepareXChatUnlock(cmd.Context())
+		if materialErr != nil {
+			return materialErr
+		}
+		pin, pinErr := readXChatPIN(cmd.ErrOrStderr())
+		if pinErr != nil {
+			return pinErr
+		}
+		cryptoSession, sessionErr := xchat.NewSession(cmd.Context(), material, pin)
+		clear(pin)
+		if sessionErr != nil {
+			return fmt.Errorf("unlocking XChat: %w", sessionErr)
+		}
+		defer cryptoSession.Close()
+		webClient.SetXChatDecryptor(cryptoSession)
+		client = webClient
 		path, err = config.WebCachePath(session.Key())
 		if err != nil {
 			return err

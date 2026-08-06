@@ -3,6 +3,7 @@ package cmd
 import (
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"sort"
 	"strings"
@@ -141,9 +142,6 @@ func init() {
 }
 
 func runAuthWebUnlock(cmd *cobra.Command, args []string) error {
-	if !term.IsTerminal(os.Stdin.Fd()) {
-		return errors.New("XChat PIN must be entered from an interactive terminal")
-	}
 	store, err := webauth.NewStore()
 	if err != nil {
 		return err
@@ -167,12 +165,9 @@ func runAuthWebUnlock(cmd *cobra.Command, args []string) error {
 		return err
 	}
 	output := cmd.ErrOrStderr()
-	fmt.Fprintln(output, "Enter your existing XChat PIN. Do not guess: failed attempts are limited.")
-	fmt.Fprint(output, "XChat PIN: ")
-	pin, err := term.ReadPassword(os.Stdin.Fd())
-	fmt.Fprintln(output)
+	pin, err := readXChatPIN(output)
 	if err != nil {
-		return fmt.Errorf("reading XChat PIN: %w", err)
+		return err
 	}
 	defer clear(pin)
 	diagnostics, err := xchat.Diagnose(cmd.Context(), material, pin)
@@ -182,6 +177,20 @@ func runAuthWebUnlock(cmd *cobra.Command, args []string) error {
 	fmt.Fprintf(cmd.OutOrStdout(), "XChat unlocked; decrypted messages: %d; decoded events: %d; errors: %d\n",
 		diagnostics.Messages, diagnostics.Events, diagnostics.Errors)
 	return nil
+}
+
+func readXChatPIN(output io.Writer) ([]byte, error) {
+	if !term.IsTerminal(os.Stdin.Fd()) {
+		return nil, errors.New("XChat PIN must be entered from an interactive terminal")
+	}
+	fmt.Fprintln(output, "Enter your existing XChat PIN. Do not guess: failed attempts are limited.")
+	fmt.Fprint(output, "XChat PIN: ")
+	pin, err := term.ReadPassword(os.Stdin.Fd())
+	fmt.Fprintln(output)
+	if err != nil {
+		return nil, fmt.Errorf("reading XChat PIN: %w", err)
+	}
+	return pin, nil
 }
 
 func runAuthWebDiagnose(cmd *cobra.Command, args []string) error {
