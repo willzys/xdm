@@ -1,0 +1,124 @@
+package webapi
+
+import (
+	"errors"
+	"strings"
+
+	"github.com/willzys/xdm/internal/api"
+)
+
+type inboxResponse struct {
+	State struct {
+		Conversations map[string]struct {
+			Participants []struct {
+				UserID string `json:"user_id"`
+			} `json:"participants"`
+		} `json:"conversations"`
+		Entries []struct {
+			Message *webMessage `json:"message"`
+		} `json:"entries"`
+		Users map[string]webUser `json:"users"`
+	} `json:"inbox_initial_state"`
+}
+
+type webMessage struct {
+	ID             string `json:"id"`
+	Time           string `json:"time"`
+	ConversationID string `json:"conversation_id"`
+	Data           struct {
+		ID        string `json:"id"`
+		Time      string `json:"time"`
+		SenderID  string `json:"sender_id"`
+		Recipient string `json:"recipient_id"`
+		Text      string `json:"text"`
+	} `json:"message_data"`
+}
+
+type webUser struct {
+	ID       string `json:"id_str"`
+	Name     string `json:"name"`
+	Username string `json:"screen_name"`
+}
+
+func (r inboxResponse) eventPage() (api.EventPage, error) {
+	var page api.EventPage
+	page.Includes.Users = make([]api.User, 0, len(r.State.Users))
+	for key, user := range r.State.Users {
+		if user.ID == "" {
+			user.ID = key
+		}
+		if user.ID == "" {
+			continue
+		}
+		page.Includes.Users = append(page.Includes.Users, api.User{ID: user.ID, Name: user.Name, Username: user.Username})
+	}
+	for _, entry := range r.State.Entries {
+		if entry.Message == nil {
+			continue
+		}
+		message := entry.Message
+		conversationID := strings.TrimSpace(message.ConversationID)
+		if conversationID == "" {
+			continue
+		}
+		id := message.Data.ID
+		if id == "" {
+			id = message.ID
+		}
+		created := message.Data.Time
+		if created == "" {
+			created = message.Time
+		}
+		participants := r.State.Conversations[conversationID].Participants
+		participantIDs := make([]string, 0, len(participants))
+		for _, participant := range participants {
+			if participant.UserID != "" {
+				participantIDs = append(participantIDs, participant.UserID)
+			}
+		}
+		page.Data = append(page.Data, api.Event{
+			ID: id, EventType: "MessageCreate", Text: message.Data.Text,
+			SenderID: message.Data.SenderID, ConversationID: conversationID,
+			ParticipantIDs: participantIDs, CreatedAt: parseWebTime(created),
+		})
+	}
+	page.Meta.ResultCount = len(page.Data)
+	if len(r.State.Conversations) > 0 && len(page.Data) == 0 {
+		return api.EventPage{}, errors.New("X web inbox contained conversations but no supported message entries")
+	}
+	return page, nil
+}
+
+type sendResponse struct {
+	Entries []struct {
+		Message *webMessage `json:"message"`
+	} `json:"entries"`
+	Event struct {
+		ID string `json:"id"`
+	} `json:"event"`
+}
+
+func (r sendResponse) result(conversationID string) (api.SendResult, error) {
+	var result api.SendResult
+	result.Data.ConversationID = conversationID
+	for _, entry := range r.Entries {
+		if entry.Message == nil {
+			continue
+		}
+		if entry.Message.ConversationID != "" {
+			result.Data.ConversationID = entry.Message.ConversationID
+		}
+		result.Data.EventID = entry.Message.Data.ID
+		if result.Data.EventID == "" {
+			result.Data.EventID = entry.Message.ID
+		}
+		if result.Data.EventID != "" {
+			return result, nil
+		}
+	}
+	result.Data.EventID = r.Event.ID
+	if result.Data.EventID == "" {
+		return api.SendResult{}, errors.New("X web send response did not include a DM event ID")
+	}
+	return result, nil
+}
