@@ -228,6 +228,30 @@ go run . logout all
 ```
 
 Each web account has an isolated local message database.
+`xdm` keeps a minimal cache index so a database can still be selected by its
+account name after authentication is removed.
+
+Clear cached messages without removing authentication:
+
+```sh
+go run . cache clear official
+go run . cache clear web --account <account>
+go run . cache clear all
+```
+
+To remove authentication and the associated local data together, add
+`--delete-data` to a `logout` command:
+
+```sh
+go run . logout official --delete-data
+go run . logout web --account <account> --delete-data
+go run . logout web --delete-data
+go run . logout all --delete-data
+```
+
+Deleting data for any web account also removes the dedicated browser profiles,
+because a profile can contain cookies for more than one saved account. Other
+encrypted web sessions remain saved when `--account` selects one account.
 
 ## Data and security model
 
@@ -241,8 +265,17 @@ Each web account has an isolated local message database.
 - Decrypted message history is cached locally in SQLite for browsing and
   search. The message database itself is **not encrypted**; protect the user
   account and disk accordingly.
-- `logout` removes authentication but does not currently erase the local
-  message cache or persistent browser profile.
+- The web cache index contains account identifiers and cache keys, but no
+  tokens, cookies, PINs, keys, or message content. It is removed with the
+  corresponding caches.
+- `cache clear` removes unencrypted message databases while preserving saved
+  authentication and dedicated browser profiles.
+- `logout --delete-data` removes the selected message database, SQLite sidecar
+  files and cache-index entries before removing authentication. For web
+  authentication it also removes all dedicated browser profiles.
+- File deletion cannot guarantee physical media sanitization on SSDs,
+  copy-on-write filesystems, backups, or snapshots. Use operating-system disk
+  encryption and retention controls when that threat is relevant.
 - Sensitive logs, cookies, tokens, message databases, and real message content
   must never be attached to public issues.
 
@@ -255,7 +288,6 @@ See [SECURITY.md](SECURITY.md) for private vulnerability reporting.
 - Create new one-to-one and group conversations.
 - Support encrypted media and attachments.
 - Add replies, reactions, edits, deletes, and read receipts.
-- Improve cache lifecycle controls, including secure account-data removal.
 - Publish reproducible cross-platform binaries and checksums.
 
 Roadmap items are directional, not release commitments. Open an issue before

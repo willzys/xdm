@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/spf13/cobra"
+	"github.com/willzys/xdm/internal/accountdata"
 	"github.com/willzys/xdm/internal/api"
 	"github.com/willzys/xdm/internal/auth"
 	"github.com/willzys/xdm/internal/cache"
@@ -40,6 +41,7 @@ func run(cmd *cobra.Command, args []string) error {
 	}
 	var client service.Client
 	var path string
+	var webCacheKey, webCacheUsername string
 	switch strings.ToLower(strings.TrimSpace(backend)) {
 	case "official":
 		if cfg.ClientID == "" {
@@ -93,6 +95,8 @@ func run(cmd *cobra.Command, args []string) error {
 		if err != nil {
 			return err
 		}
+		webCacheKey = session.Key()
+		webCacheUsername = session.Account.Username
 		fmt.Fprintln(cmd.ErrOrStderr(), "Warning: the experimental web backend uses undocumented X endpoints and may cause account restrictions or violate X terms.")
 	default:
 		return fmt.Errorf("unknown backend %q; use official or web", backend)
@@ -102,5 +106,14 @@ func run(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("opening message cache: %w", err)
 	}
 	defer messageCache.Close()
+	if webCacheKey != "" {
+		remover, removerErr := accountdata.NewRemover()
+		if removerErr == nil {
+			removerErr = remover.RememberWebCache(webCacheKey, webCacheUsername)
+		}
+		if removerErr != nil {
+			fmt.Fprintf(cmd.ErrOrStderr(), "Warning: could not record the web cache account: %v\n", removerErr)
+		}
+	}
 	return tui.Run(cmd.Context(), service.New(client, messageCache))
 }
