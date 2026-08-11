@@ -56,15 +56,26 @@ or compatibility guarantee yet.
 ### Experimental web/XChat backend
 
 - Chrome, Edge, or Chromium
-- Node.js 18 or newer and npm for the current crypto runtime
 - An XChat PIN for accounts using encrypted Chat
 
-The Node/npm requirement is temporary. The intended release format will bundle
-a native crypto helper so end users do not need a JavaScript toolchain.
+Packaged builds include the platform-native XChat crypto helper. Node.js and
+npm are only needed by contributors who run the web backend directly from a
+source checkout or assemble a release artifact.
 
 ## Installation
 
-There are no published binaries yet. Build the current development version
+Tagged versions are published on the
+[GitHub Releases](https://github.com/willzys/xdm/releases) page. Download the
+archive matching the operating system and architecture, compare its SHA-256
+with `checksums.txt`, extract the complete directory, and run `xdm`. Keep the
+helper and `xchat-runtime` directory beside the main executable.
+
+The automated packages currently target Windows x64, Linux x64, macOS Intel,
+and macOS Apple Silicon. Release artifacts are not code-signed or notarized
+yet. Verify the published checksum before running them and expect the operating
+system to show an unknown-publisher warning while the project remains in alpha.
+
+If no tagged release is available yet, build the current development version
 from source:
 
 ```sh
@@ -119,16 +130,22 @@ Use `--no-browser` when the authorization URL must be opened manually.
 > understanding and accepting that risk. `xdm` does not bypass challenges,
 > rate limits, access controls, or other X security mechanisms.
 
-### 1. Install the pinned crypto runtime
+### 1. Prepare the crypto runtime
+
+Packaged builds already contain `xdm-xchat-helper` and its pinned runtime; no
+Node.js or npm installation is needed.
+
+When running the web backend directly from a source checkout, install the
+development copy of the runtime:
 
 ```sh
-npm install --prefix ./internal/xchat/runtime
+npm ci --prefix ./internal/xchat/runtime
 ```
 
 PowerShell users with script execution disabled can run:
 
 ```powershell
-npm.cmd install --prefix .\internal\xchat\runtime
+npm.cmd ci --prefix .\internal\xchat\runtime
 ```
 
 The runtime uses the official, MIT-licensed
@@ -283,12 +300,11 @@ See [SECURITY.md](SECURITY.md) for private vulnerability reporting.
 
 ## Roadmap
 
-- Bundle a native XChat crypto helper and remove the end-user Node/npm step.
 - Add complete inbox and conversation history pagination.
 - Create new one-to-one and group conversations.
 - Support encrypted media and attachments.
 - Add replies, reactions, edits, deletes, and read receipts.
-- Publish reproducible cross-platform binaries and checksums.
+- Make release archives reproducible and add platform code signing.
 
 Roadmap items are directional, not release commitments. Open an issue before
 starting a large feature so its design and scope can be discussed.
@@ -304,6 +320,26 @@ go vet ./...
 go build ./...
 git diff --check
 ```
+
+To assemble an XChat-capable artifact, use an extracted official Node.js
+distribution for the host platform. Its `LICENSE` file is included in the
+bundle along with the pinned SDK packages and both WebAssembly modules:
+
+```sh
+npm ci --prefix ./internal/xchat/runtime
+go run ./cmd/package-xchat-helper --node-dir <node-distribution> --output ./dist/xdm
+go build -trimpath -o ./dist/xdm/xdm .
+```
+
+On Windows, name the final application `xdm.exe`. The packaging command only
+accepts a new output directory, records the Node version and package-lock hash,
+and never overwrites an existing artifact.
+
+Pushing a semantic-version tag such as `v0.1.0` runs the release workflow. It
+validates the repository, builds the four supported packages on native GitHub
+runners, generates `checksums.txt`, and publishes all files in a GitHub release.
+Running the workflow manually produces temporary Actions artifacts without
+publishing a release.
 
 Use the demo backend for interface work and sanitized test fixtures for network
 or cryptographic changes. Never commit credentials, cookies, PINs, private

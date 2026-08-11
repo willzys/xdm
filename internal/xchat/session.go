@@ -7,9 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"os"
 	"os/exec"
-	"path/filepath"
 	"sync"
 	"time"
 
@@ -65,19 +63,14 @@ func (s *Session) EncryptMessage(ctx context.Context, conversationID, text strin
 }
 
 func NewSession(ctx context.Context, material webapi.XChatUnlockMaterial, pin []byte) (*Session, error) {
-	runtimeDir, err := runtimeDirectory()
+	runtime, err := resolveCryptoRuntime()
 	if err != nil {
 		return nil, err
 	}
-	if _, err := os.Stat(filepath.Join(runtimeDir, "node_modules", "@xdevplatform", "chat-xdk", "package.json")); err != nil {
-		return nil, fmt.Errorf("XChat crypto runtime is not installed; run 'npm.cmd install --prefix \"%s\"'", runtimeDir)
-	}
-	node, err := exec.LookPath("node")
+	command, err := runtime.commandContext(ctx, "session.mjs")
 	if err != nil {
-		return nil, errors.New("Node.js 18 or newer is required for XChat decryption on Windows")
+		return nil, err
 	}
-	command := exec.CommandContext(ctx, node, filepath.Join(runtimeDir, "session.mjs"))
-	command.Dir = runtimeDir
 	stdin, err := command.StdinPipe()
 	if err != nil {
 		return nil, err
