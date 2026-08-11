@@ -64,7 +64,18 @@ source checkout or assemble a release artifact.
 
 ## Installation
 
-There are no published binaries yet. Build the current development version
+Tagged versions are published on the
+[GitHub Releases](https://github.com/willzys/xdm/releases) page. Download the
+archive matching the operating system and architecture, compare its SHA-256
+with `checksums.txt`, extract the complete directory, and run `xdm`. Keep the
+helper and `xchat-runtime` directory beside the main executable.
+
+The automated packages currently target Windows x64, Linux x64, macOS Intel,
+and macOS Apple Silicon. Release artifacts are not code-signed or notarized
+yet. Verify the published checksum before running them and expect the operating
+system to show an unknown-publisher warning while the project remains in alpha.
+
+If no tagged release is available yet, build the current development version
 from source:
 
 ```sh
@@ -293,7 +304,7 @@ See [SECURITY.md](SECURITY.md) for private vulnerability reporting.
 - Create new one-to-one and group conversations.
 - Support encrypted media and attachments.
 - Add replies, reactions, edits, deletes, and read receipts.
-- Publish reproducible cross-platform binaries, bundled helpers, and checksums.
+- Make release archives reproducible and add platform code signing.
 
 Roadmap items are directional, not release commitments. Open an issue before
 starting a large feature so its design and scope can be discussed.
@@ -323,6 +334,12 @@ go build -trimpath -o ./dist/xdm/xdm .
 On Windows, name the final application `xdm.exe`. The packaging command only
 accepts a new output directory, records the Node version and package-lock hash,
 and never overwrites an existing artifact.
+
+Pushing a semantic-version tag such as `v0.1.0` runs the release workflow. It
+validates the repository, builds the four supported packages on native GitHub
+runners, generates `checksums.txt`, and publishes all files in a GitHub release.
+Running the workflow manually produces temporary Actions artifacts without
+publishing a release.
 
 Use the demo backend for interface work and sanitized test fixtures for network
 or cryptographic changes. Never commit credentials, cookies, PINs, private
