@@ -8,12 +8,12 @@ import (
 
 func TestRemoveOfficialDeletesSQLiteFilesOnly(t *testing.T) {
 	remover := testRemover(t)
-	writeFiles(t, remover.root, "messages.db", "messages.db-wal", "messages.db-shm", "keep.txt")
+	writeFiles(t, remover.root, "messages.db", "messages.db-journal", "messages.db-wal", "messages.db-shm", "keep.txt")
 
 	if err := remover.RemoveOfficial(); err != nil {
 		t.Fatal(err)
 	}
-	assertMissing(t, remover.root, "messages.db", "messages.db-wal", "messages.db-shm")
+	assertMissing(t, remover.root, "messages.db", "messages.db-journal", "messages.db-wal", "messages.db-shm")
 	assertExists(t, filepath.Join(remover.root, "keep.txt"))
 }
 
@@ -40,7 +40,7 @@ func TestRemoveWebDeletesOneAccountAndSharedBrowserProfiles(t *testing.T) {
 func TestRemoveAllWebPreservesOfficialAndUnrelatedFiles(t *testing.T) {
 	remover := testRemover(t)
 	writeFiles(t, remover.root,
-		"messages-web-first.db", "messages-web-first.db-shm", "messages-web-orphan.db-wal", "messages-web-second.db", "messages.db", "keep.txt")
+		"messages-web-first.db", "messages-web-first.db-shm", "messages-web-orphan.db-journal", "messages-web-orphan.db-wal", "messages-web-second.db", "messages.db", "keep.txt")
 	if err := os.MkdirAll(filepath.Join(remover.root, "browser-auth", "edge"), 0700); err != nil {
 		t.Fatal(err)
 	}
@@ -49,7 +49,7 @@ func TestRemoveAllWebPreservesOfficialAndUnrelatedFiles(t *testing.T) {
 		t.Fatal(err)
 	}
 	assertMissing(t, remover.root,
-		"messages-web-first.db", "messages-web-first.db-shm", "messages-web-orphan.db-wal", "messages-web-second.db", "browser-auth")
+		"messages-web-first.db", "messages-web-first.db-shm", "messages-web-orphan.db-journal", "messages-web-orphan.db-wal", "messages-web-second.db", "browser-auth")
 	assertExists(t, filepath.Join(remover.root, "messages.db"))
 	assertExists(t, filepath.Join(remover.root, "keep.txt"))
 }
