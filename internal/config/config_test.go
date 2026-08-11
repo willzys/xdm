@@ -2,13 +2,13 @@ package config
 
 import (
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
 
 func TestWebCachePathSeparatesAndSanitizesAccounts(t *testing.T) {
-	cacheRoot := t.TempDir()
-	t.Setenv("LocalAppData", cacheRoot)
+	cacheRoot := configureUserCacheDir(t)
 
 	first, err := WebCachePath("Example/User")
 	if err != nil {
@@ -32,5 +32,21 @@ func TestWebCachePathSeparatesAndSanitizesAccounts(t *testing.T) {
 func TestWebCachePathRequiresAccount(t *testing.T) {
 	if _, err := WebCachePath(" "); err == nil {
 		t.Fatal("WebCachePath() accepted an empty account")
+	}
+}
+
+func configureUserCacheDir(t *testing.T) string {
+	t.Helper()
+	root := t.TempDir()
+	switch runtime.GOOS {
+	case "windows":
+		t.Setenv("LocalAppData", root)
+		return root
+	case "darwin":
+		t.Setenv("HOME", root)
+		return filepath.Join(root, "Library", "Caches")
+	default:
+		t.Setenv("XDG_CACHE_HOME", root)
+		return root
 	}
 }
