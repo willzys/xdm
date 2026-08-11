@@ -1,0 +1,187 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  prepare:
+    name: Prepare version
+    runs-on: ubuntu-24.04
+    outputs:
+      version: ${{ steps.version.outputs.value }}
+    steps:
+      - name: Resolve version
+        id: version
+        shell: bash
+        run: |
+          if [[ "$GITHUB_REF_TYPE" == "tag" ]]; then
+            if [[ ! "$GITHUB_REF_NAME" =~ ^v[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z.-]+)?$ ]]; then
+              echo "Release tags must use vX.Y.Z semantic versioning." >&2
+              exit 1
+            fi
+            echo "value=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+          else
+            echo "value=dev-${GITHUB_SHA:0:7}" >> "$GITHUB_OUTPUT"
+          fi
+
+  validate:
+    name: Validate source
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v6.0.2
+      - uses: actions/setup-go@v7.0.0
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: go.sum
+      - uses: actions/setup-node@v6.4.0
+        with:
+          node-version: 24.16.0
+          cache: npm
+          cache-dependency-path: internal/xchat/runtime/package-lock.json
+      - name: Install pinned XChat runtime
+        run: npm ci --omit=dev --prefix ./internal/xchat/runtime
+      - name: Test
+        run: go test ./...
+      - name: Vet
+        run: go vet ./...
+      - name: Build
+        run: go build ./...
+      - name: Check formatting
+        shell: bash
+        run: |
+          files="$(gofmt -l $(find . -name '*.go' -not -path './internal/xchat/runtime/node_modules/*'))"
+          if [[ -n "$files" ]]; then
+            echo "$files"
+            exit 1
+          fi
+      - name: Check whitespace
+        run: git diff --check
+
+  package:
+    name: Package ${{ matrix.os }} ${{ matrix.arch }}
+    needs: [prepare, validate]
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: windows-2025
+            os: windows
+            arch: amd64
+            archive: zip
+          - runner: ubuntu-24.04
+            os: linux
+            arch: amd64
+            archive: tar.gz
+          - runner: macos-15-intel
+            os: darwin
+            arch: amd64
+            archive: tar.gz
+          - runner: macos-15
+            os: darwin
+            arch: arm64
+            archive: tar.gz
+    env:
+      ARTIFACT_NAME: xdm-${{ needs.prepare.outputs.version }}-${{ matrix.os }}-${{ matrix.arch }}
+      CGO_ENABLED: "0"
+    steps:
+      - uses: actions/checkout@v6.0.2
+      - uses: actions/setup-go@v7.0.0
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: go.sum
+      - uses: actions/setup-node@v6.4.0
+        with:
+          node-version: 24.16.0
+          cache: npm
+          cache-dependency-path: internal/xchat/runtime/package-lock.json
+      - name: Install pinned XChat runtime
+        run: npm ci --omit=dev --prefix ./internal/xchat/runtime
+      - name: Locate official Node distribution
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          node_dist="$(node -p "require('path').dirname(require('path').dirname(process.execPath))")"
+          test -x "$node_dist/bin/node"
+          test -f "$node_dist/LICENSE"
+          echo "NODE_DIST=$node_dist" >> "$GITHUB_ENV"
+      - name: Locate official Node distribution
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $nodeDist = node -p "require('path').dirname(process.execPath)"
+          if (-not (Test-Path -LiteralPath (Join-Path $nodeDist "node.exe"))) { throw "node.exe is missing" }
+          if (-not (Test-Path -LiteralPath (Join-Path $nodeDist "LICENSE"))) { throw "Node LICENSE is missing" }
+          "NODE_DIST=$nodeDist" >> $env:GITHUB_ENV
+      - name: Build Linux or macOS archive
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          bundle="dist/$ARTIFACT_NAME"
+          go run ./cmd/package-xchat-helper --node-dir "$NODE_DIST" --output "$bundle"
+          go build -trimpath -ldflags="-s -w" -o "$bundle/xdm" .
+          cp LICENSE README.md "$bundle/"
+          tar -C dist -czf "dist/$ARTIFACT_NAME.tar.gz" "$ARTIFACT_NAME"
+      - name: Build Windows archive
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $bundle = Join-Path "dist" $env:ARTIFACT_NAME
+          go run ./cmd/package-xchat-helper --node-dir $env:NODE_DIST --output $bundle
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          go build -trimpath -ldflags="-s -w" -o (Join-Path $bundle "xdm.exe") .
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          Copy-Item -LiteralPath "LICENSE", "README.md" -Destination $bundle
+          Compress-Archive -Path $bundle -DestinationPath "dist/$env:ARTIFACT_NAME.zip"
+      - name: Upload package
+        uses: actions/upload-artifact@v7.0.1
+        with:
+          path: dist/${{ env.ARTIFACT_NAME }}.${{ matrix.archive }}
+          archive: false
+          if-no-files-found: error
+          retention-days: 14
+
+  assemble:
+    name: Assemble release
+    needs: [prepare, package]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - name: Download packages
+        uses: actions/download-artifact@v8.0.1
+        with:
+          path: release-assets
+          merge-multiple: true
+      - name: Generate checksums
+        shell: bash
+        run: |
+          cd release-assets
+          sha256sum xdm-* > checksums.txt
+          cat checksums.txt
+      - name: Upload checksums
+        uses: actions/upload-artifact@v7.0.1
+        with:
+          path: release-assets/checksums.txt
+          archive: false
+          if-no-files-found: error
+          retention-days: 14
+      - name: Publish GitHub release
+        if: github.ref_type == 'tag'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          gh release create "$GITHUB_REF_NAME" release-assets/* --verify-tag --generate-notes --title "$GITHUB_REF_NAME" --draft
+          gh release edit "$GITHUB_REF_NAME" --draft=false
