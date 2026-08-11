@@ -4,6 +4,11 @@ on:
   push:
     tags:
       - "v*"
+  pull_request:
+    paths:
+      - ".github/workflows/release.yml"
+      - "cmd/package-xchat-helper/**"
+      - "internal/xchat/**"
   workflow_dispatch:
 
 permissions:
@@ -156,8 +161,6 @@ jobs:
     name: Assemble release
     needs: [prepare, package]
     runs-on: ubuntu-24.04
-    permissions:
-      contents: write
     steps:
       - name: Download packages
         uses: actions/download-artifact@v8.0.1
@@ -177,8 +180,21 @@ jobs:
           archive: false
           if-no-files-found: error
           retention-days: 14
+
+  publish:
+    name: Publish release
+    if: github.ref_type == 'tag'
+    needs: [prepare, assemble]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - name: Download release assets
+        uses: actions/download-artifact@v8.0.1
+        with:
+          path: release-assets
+          merge-multiple: true
       - name: Publish GitHub release
-        if: github.ref_type == 'tag'
         env:
           GH_TOKEN: ${{ github.token }}
         shell: bash
