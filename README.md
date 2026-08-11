@@ -228,6 +228,8 @@ go run . logout all
 ```
 
 Each web account has an isolated local message database.
+`xdm` keeps a minimal cache index so a database can still be selected by its
+account name after authentication is removed.
 
 Clear cached messages without removing authentication:
 
@@ -263,11 +265,14 @@ encrypted web sessions remain saved when `--account` selects one account.
 - Decrypted message history is cached locally in SQLite for browsing and
   search. The message database itself is **not encrypted**; protect the user
   account and disk accordingly.
+- The web cache index contains account identifiers and cache keys, but no
+  tokens, cookies, PINs, keys, or message content. It is removed with the
+  corresponding caches.
 - `cache clear` removes unencrypted message databases while preserving saved
   authentication and dedicated browser profiles.
-- `logout --delete-data` removes the selected authentication, message database
-  and SQLite sidecar files. For web authentication it also removes all
-  dedicated browser profiles.
+- `logout --delete-data` removes the selected message database, SQLite sidecar
+  files and cache-index entries before removing authentication. For web
+  authentication it also removes all dedicated browser profiles.
 - File deletion cannot guarantee physical media sanitization on SSDs,
   copy-on-write filesystems, backups, or snapshots. Use operating-system disk
   encryption and retention controls when that threat is relevant.
