@@ -14,6 +14,8 @@ const (
 	webCachePrefix = "messages-web-"
 )
 
+var databaseSuffixes = []string{"", "-journal", "-wal", "-shm"}
+
 // Remover deletes local message caches and dedicated browser state created by xdm.
 type Remover struct {
 	root string
@@ -57,7 +59,7 @@ func (r *Remover) RemoveWeb(account string) error {
 	if account == "" {
 		return errors.New("web account is required for local data removal")
 	}
-	return errors.Join(r.removeWebCache(account), r.removeBrowserProfiles())
+	return errors.Join(r.RemoveWebCache(account), r.removeBrowserProfiles())
 }
 
 func (r *Remover) RemoveWebCache(account string) error {
@@ -68,7 +70,10 @@ func (r *Remover) RemoveWebCache(account string) error {
 	if account == "" {
 		return errors.New("web account is required for local data removal")
 	}
-	return r.removeWebCache(account)
+	if err := r.removeWebCache(account); err != nil {
+		return err
+	}
+	return r.forgetWebCache(account)
 }
 
 func (r *Remover) removeWebCache(account string) error {
@@ -99,7 +104,10 @@ func (r *Remover) RemoveAllWebCaches() error {
 		if entry.IsDir() || !strings.HasPrefix(name, webCachePrefix) {
 			continue
 		}
-		base := strings.TrimSuffix(strings.TrimSuffix(name, "-wal"), "-shm")
+		base := name
+		for _, suffix := range databaseSuffixes[1:] {
+			base = strings.TrimSuffix(base, suffix)
+		}
 		if strings.HasSuffix(base, ".db") {
 			databases[base] = struct{}{}
 		}
@@ -108,7 +116,10 @@ func (r *Remover) RemoveAllWebCaches() error {
 	for name := range databases {
 		removeErr = errors.Join(removeErr, r.removeDatabase(filepath.Join(r.root, name)))
 	}
-	return removeErr
+	if removeErr != nil {
+		return removeErr
+	}
+	return r.removeWebCacheIndex()
 }
 
 func (r *Remover) RemoveAll() error {
@@ -134,7 +145,7 @@ func (r *Remover) removeDatabase(path string) error {
 		return errors.New("refusing to remove a database outside the xdm cache directory")
 	}
 	var removeErr error
-	for _, suffix := range []string{"", "-wal", "-shm"} {
+	for _, suffix := range databaseSuffixes {
 		if err := os.Remove(path + suffix); err != nil && !errors.Is(err, os.ErrNotExist) {
 			removeErr = errors.Join(removeErr, fmt.Errorf("removing %s: %w", filepath.Base(path+suffix), err))
 		}

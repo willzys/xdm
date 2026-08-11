@@ -26,7 +26,7 @@ var cacheClearCmd = &cobra.Command{
 }
 
 func init() {
-	cacheClearCmd.Flags().StringVar(&cacheAccount, "account", "", "clear cache for this saved web account")
+	cacheClearCmd.Flags().StringVar(&cacheAccount, "account", "", "clear cache for this web account")
 	cacheCmd.AddCommand(cacheClearCmd)
 	rootCmd.AddCommand(cacheCmd)
 }
@@ -50,15 +50,19 @@ func runCacheClear(cmd *cobra.Command, args []string) error {
 		if strings.TrimSpace(cacheAccount) == "" {
 			return errors.New("--account is required with 'xdm cache clear web'; use 'xdm cache clear all' to clear every cache")
 		}
-		store, storeErr := webauth.NewStore()
-		if storeErr != nil {
-			return storeErr
+		accountKey := ""
+		if store, storeErr := webauth.NewStore(); storeErr == nil {
+			if session, loadErr := store.Load(cacheAccount); loadErr == nil {
+				accountKey = session.Key()
+			}
 		}
-		session, loadErr := store.Load(cacheAccount)
-		if loadErr != nil {
-			return loadErr
+		if accountKey == "" {
+			accountKey, err = remover.ResolveWebCache(cacheAccount)
+			if err != nil {
+				return err
+			}
 		}
-		err = remover.RemoveWebCache(session.Key())
+		err = remover.RemoveWebCache(accountKey)
 	case "all":
 		err = errors.Join(remover.RemoveOfficial(), remover.RemoveAllWebCaches())
 	default:

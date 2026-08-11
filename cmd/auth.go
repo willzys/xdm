@@ -124,7 +124,7 @@ func runLogout(cmd *cobra.Command, args []string) error {
 	switch provider {
 	case "official":
 		if logoutDeleteData {
-			err = errors.Join(remover.RemoveOfficial(), (auth.KeyringStore{}).Delete())
+			err = removeBeforeLogout(remover.RemoveOfficial, (auth.KeyringStore{}).Delete)
 		} else {
 			err = (auth.KeyringStore{}).Delete()
 		}
@@ -141,24 +141,37 @@ func runLogout(cmd *cobra.Command, args []string) error {
 		if storeErr != nil {
 			return storeErr
 		}
-		accountKey := ""
-		if logoutDeleteData && strings.TrimSpace(logoutAccount) != "" {
+		if remover == nil {
+			remover, err = accountdata.NewRemover()
+			if err != nil {
+				return err
+			}
+		}
+		if strings.TrimSpace(logoutAccount) != "" {
 			session, loadErr := store.Load(logoutAccount)
 			if loadErr != nil {
 				return loadErr
 			}
-			accountKey = session.Key()
-		}
-		if logoutDeleteData {
-			if accountKey == "" {
-				err = remover.RemoveAllWeb()
+			if logoutDeleteData {
+				err = removeBeforeLogout(
+					func() error { return remover.RemoveWeb(session.Key()) },
+					func() error { return store.Delete(logoutAccount) },
+				)
 			} else {
-				err = remover.RemoveWeb(accountKey)
+				err = remover.RememberWebCache(session.Key(), session.Account.Username)
 			}
+		} else if logoutDeleteData {
+			err = removeBeforeLogout(remover.RemoveAllWeb, func() error { return store.Delete("") })
+		} else {
+			err = rememberSavedWebCaches(remover, store)
 		}
-		err = errors.Join(err, store.Delete(logoutAccount))
 		if err != nil {
 			return err
+		}
+		if !logoutDeleteData {
+			if err := store.Delete(logoutAccount); err != nil {
+				return err
+			}
 		}
 		if logoutDeleteData {
 			fmt.Fprintln(cmd.OutOrStdout(), "Removed the saved X web session, cached messages, and dedicated browser data.")
@@ -170,12 +183,27 @@ func runLogout(cmd *cobra.Command, args []string) error {
 		if storeErr != nil {
 			return storeErr
 		}
-		if logoutDeleteData {
-			err = remover.RemoveAll()
+		if remover == nil {
+			remover, err = accountdata.NewRemover()
+			if err != nil {
+				return err
+			}
 		}
-		err = errors.Join(err, (auth.KeyringStore{}).Delete(), store.Delete(""))
+		if logoutDeleteData {
+			err = removeBeforeLogout(
+				remover.RemoveAll,
+				func() error { return errors.Join((auth.KeyringStore{}).Delete(), store.Delete("")) },
+			)
+		} else {
+			err = rememberSavedWebCaches(remover, store)
+		}
 		if err != nil {
 			return err
+		}
+		if !logoutDeleteData {
+			if err := errors.Join((auth.KeyringStore{}).Delete(), store.Delete("")); err != nil {
+				return err
+			}
 		}
 		if logoutDeleteData {
 			fmt.Fprintln(cmd.OutOrStdout(), "Removed all saved X authentication and local account data.")
@@ -184,6 +212,29 @@ func runLogout(cmd *cobra.Command, args []string) error {
 		}
 	default:
 		return fmt.Errorf("unknown authentication provider %q; use official, web, or all", provider)
+	}
+	return nil
+}
+
+func removeBeforeLogout(removeData, removeAuthentication func() error) error {
+	if err := removeData(); err != nil {
+		return err
+	}
+	return removeAuthentication()
+}
+
+func rememberSavedWebCaches(remover *accountdata.Remover, store *webauth.Store) error {
+	sessions, _, err := store.List()
+	if errors.Is(err, webauth.ErrNotAuthenticated) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	for _, session := range sessions {
+		if err := remover.RememberWebCache(session.Key(), session.Account.Username); err != nil {
+			return err
+		}
 	}
 	return nil
 }
