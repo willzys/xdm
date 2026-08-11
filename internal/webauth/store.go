@@ -67,17 +67,36 @@ func (s *Store) Save(session Session) error {
 }
 
 func (s *Store) LoadActive() (Session, error) {
+	return s.Load("")
+}
+
+// Load returns the active session when account is empty, or the saved session
+// matching an account key or username.
+func (s *Store) Load(account string) (Session, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	vault, err := s.loadVault()
 	if err != nil {
 		return Session{}, err
 	}
-	session, ok := vault.Sessions[vault.Active]
-	if !ok {
-		return Session{}, ErrNotAuthenticated
+	return selectSession(vault, account)
+}
+
+func selectSession(vault Vault, account string) (Session, error) {
+	account = strings.ToLower(strings.TrimPrefix(strings.TrimSpace(account), "@"))
+	if account == "" {
+		session, ok := vault.Sessions[vault.Active]
+		if !ok {
+			return Session{}, ErrNotAuthenticated
+		}
+		return session.clone(), nil
 	}
-	return session.clone(), nil
+	for key, session := range vault.Sessions {
+		if strings.EqualFold(key, account) || strings.EqualFold(strings.TrimPrefix(session.Account.Username, "@"), account) {
+			return session.clone(), nil
+		}
+	}
+	return Session{}, fmt.Errorf("web account %q is not saved", account)
 }
 
 func (s *Store) List() ([]Session, string, error) {
