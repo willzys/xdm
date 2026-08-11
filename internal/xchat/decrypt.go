@@ -7,7 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -35,16 +34,13 @@ func Diagnose(ctx context.Context, material webapi.XChatUnlockMaterial, pin []by
 	if len(pin) == 0 {
 		return Diagnostics{}, errors.New("XChat PIN is required")
 	}
-	runtimeDir, err := runtimeDirectory()
+	runtime, err := resolveCryptoRuntime()
 	if err != nil {
 		return Diagnostics{}, err
 	}
-	if _, err := os.Stat(filepath.Join(runtimeDir, "node_modules", "@xdevplatform", "chat-xdk", "package.json")); err != nil {
-		return Diagnostics{}, fmt.Errorf("XChat crypto runtime is not installed; run 'npm.cmd install --prefix \"%s\"'", runtimeDir)
-	}
-	node, err := exec.LookPath("node")
+	command, err := runtime.commandContext(ctx, "decrypt.mjs")
 	if err != nil {
-		return Diagnostics{}, errors.New("Node.js 18 or newer is required for XChat decryption on Windows")
+		return Diagnostics{}, err
 	}
 	payload, err := json.Marshal(decryptRequest{XChatUnlockMaterial: material, PIN: pin})
 	if err != nil {
@@ -52,8 +48,6 @@ func Diagnose(ctx context.Context, material webapi.XChatUnlockMaterial, pin []by
 	}
 	defer clear(payload)
 
-	command := exec.CommandContext(ctx, node, filepath.Join(runtimeDir, "decrypt.mjs"))
-	command.Dir = runtimeDir
 	command.Stdin = bytes.NewReader(payload)
 	var stdout, stderr bytes.Buffer
 	command.Stdout = &stdout
