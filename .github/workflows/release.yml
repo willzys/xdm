@@ -167,6 +167,7 @@ jobs:
         with:
           path: release-assets
           merge-multiple: true
+          skip-decompress: true
       - name: Generate checksums
         shell: bash
         run: |
@@ -194,6 +195,7 @@ jobs:
         with:
           path: release-assets
           merge-multiple: true
+          skip-decompress: true
       - name: Publish GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
