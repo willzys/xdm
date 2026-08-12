@@ -6,360 +6,200 @@
 
 **A keyboard-first Direct Messages client for X, built for the terminal.**
 
-`xdm` combines a Bubble Tea interface, local searchable history, multiple
-accounts, and two interchangeable access modes: the official X API and an
-experimental X web/XChat backend.
+Bubble Tea interface, local searchable history, multiple accounts, two
+interchangeable backends.
 
 > [!IMPORTANT]
 > `xdm` is an independent open-source project. It is not affiliated with,
 > endorsed by, or supported by X Corp.
 
-## Why xdm?
+---
 
-- Stay in the terminal while reading, searching, and sending Direct Messages.
-- Navigate the entire interface from the keyboard.
-- Keep a local SQLite cache for fast startup and offline search.
-- Choose the documented official API or explicitly opt into experimental web
-  access.
-- Keep backend, authentication, service, storage, and interface concerns
-  separated for contributors.
+## Try it in 10 seconds
 
-## Project status
+No account, no credentials, no network access required:
 
-`xdm` is alpha software under active development. There is no stable release
-or compatibility guarantee yet.
+```sh
+git clone https://github.com/willzys/xdm.git && cd xdm
+go run . demo
+```
 
-| Capability | Demo | Official API | Experimental web/XChat |
-| --- | :---: | :---: | :---: |
-| Browse cached conversations | Yes | Yes | Yes |
-| Read and search text messages | Yes | Yes | Yes |
-| Send text messages | Local | Yes | Yes, encrypted |
-| Multiple web accounts | — | — | Yes |
-| End-to-end encrypted XChat | — | — | Yes |
-| Full history pagination | — | Not yet | Not yet |
-| Create conversations | — | Not yet | Not yet |
-| Media and attachments | — | Not yet | Not yet |
+---
 
-## Requirements
+## Which backend should I use?
 
-### Common
+`xdm` talks to X in two ways. Pick one; you can switch later.
 
-- Go 1.26.5 or newer
-- Git
-- A supported terminal
+| | 🌐 Web/XChat | 🔑 Official API |
+| --- | --- | --- |
+| **Cost** | Free, uses your normal X login | X's Developer Platform is pay-per-use; there's no free tier for new developer apps ([current pricing](https://docs.x.com/x-api/getting-started/pricing)) |
+| **Setup** | Log in through a browser window | Requires an X Developer app + OAuth client ID |
+| **Status** | Experimental, undocumented endpoints | Official, documented |
+| **Risk** | May break without notice; using it may violate [X's ToS](https://x.com/en/tos) and could get an account restricted | Stable, sanctioned access |
+| **Encryption** | Supports end-to-end encrypted XChat | Text only |
+| **Best for** | Most people who just want DMs in the terminal | Developers who already have X API access, or who need guaranteed stability |
 
-### Official API backend
+If you're unsure, start with **Web/XChat** below. It's the fastest way to get real DMs working. If it stops working for you at some point, that's the trade-off of it being unofficial; the Official API is the fallback.
 
-- An application in the X Developer Console
-- An OAuth 2.0 client ID
+---
 
-### Experimental web/XChat backend
+## Install
 
-- Chrome, Edge, or Chromium
-- An XChat PIN for accounts using encrypted Chat
+Grab a build from [Releases](https://github.com/willzys/xdm/releases) (Windows x64, Linux x64, macOS Intel/Apple Silicon):
 
-Packaged builds include the platform-native XChat crypto helper. Node.js and
-npm are only needed by contributors who run the web backend directly from a
-source checkout or assemble a release artifact.
+1. Download the archive for your OS.
+2. Verify it against `checksums.txt` (`sha256sum -c`).
+3. Extract the **whole folder**, keeping `xdm` next to its helper and the `xchat-runtime` directory.
+4. Run it.
 
-## Installation
+> Builds aren't code-signed yet, so your OS will show an "unknown publisher" warning while the project is in alpha. Verifying the checksum is your integrity check in the meantime.
 
-Tagged versions are published on the
-[GitHub Releases](https://github.com/willzys/xdm/releases) page. Download the
-archive matching the operating system and architecture, compare its SHA-256
-with `checksums.txt`, extract the complete directory, and run `xdm`. Keep the
-helper and `xchat-runtime` directory beside the main executable.
-
-The automated packages currently target Windows x64, Linux x64, macOS Intel,
-and macOS Apple Silicon. Release artifacts are not code-signed or notarized
-yet. Verify the published checksum before running them and expect the operating
-system to show an unknown-publisher warning while the project remains in alpha.
-
-If no tagged release is available yet, build the current development version
-from source:
+**Building from source instead:**
 
 ```sh
 git clone https://github.com/willzys/xdm.git
 cd xdm
 go mod download
-go build -o xdm .
+go build -o xdm .        # xdm.exe on Windows
 ```
 
-On Windows, the output is `xdm.exe`.
+---
 
-## Quick start: local demo
+## Set up: Web/XChat backend
 
-The demo requires no X account, credentials, or network access:
+Free, recommended for most people. Uses your regular X login through a real browser, no developer account needed.
+
+**Requirements:** Chrome, Edge, or Chromium, and your XChat PIN (only if you use encrypted Chat).
 
 ```sh
-go run . demo
+# 1. Log in (opens a dedicated browser profile, sign in manually, then close it)
+go run . auth web --browser chrome   # or: edge / chromium / auto
+
+# 2. Confirm it worked
+go run . auth status
+
+# 3. Unlock XChat (only needed if you use encrypted conversations)
+go run . auth web unlock             # enter your XChat PIN when prompted
+
+# 4. Launch
+go run . --backend web
 ```
 
-It is the safest way to explore the interface or work on TUI changes.
-
-## Official X API backend
-
-The official backend is the default and uses OAuth 2.0 with PKCE.
-
-1. Register the following callback in your X Developer application:
-
-   ```text
-   http://127.0.0.1:8743/callback
-   ```
-
-2. Authorize `xdm`:
-
-   ```sh
-   go run . auth --client-id <your-client-id>
-   ```
-
-3. Start the TUI:
-
-   ```sh
-   go run .
-   ```
-
-Use `--no-browser` when the authorization URL must be opened manually.
-
-## Experimental web/XChat backend
-
-> [!WARNING]
-> This backend uses undocumented X web endpoints. It may stop working without
-> notice, may violate [X's Terms of Service](https://x.com/en/tos), and may
-> cause X to restrict or suspend the authenticated account. Use it only after
-> understanding and accepting that risk. `xdm` does not bypass challenges,
-> rate limits, access controls, or other X security mechanisms.
-
-### 1. Prepare the crypto runtime
-
-Packaged builds already contain `xdm-xchat-helper` and its pinned runtime; no
-Node.js or npm installation is needed.
-
-When running the web backend directly from a source checkout, install the
-development copy of the runtime:
+Contributors running from a source checkout (not a packaged release) also need the crypto runtime once:
 
 ```sh
 npm ci --prefix ./internal/xchat/runtime
 ```
 
-PowerShell users with script execution disabled can run:
+**Good to know:**
+- This uses undocumented X web endpoints. It can stop working without notice, may violate [X's ToS](https://x.com/en/tos), and carries a real risk of your account being restricted. `xdm` doesn't bypass any of X's rate limits, challenges, or access controls; use it knowingly.
+- Currently supports reading and sending encrypted text in *existing* conversations. Creating new conversations, full history pagination, media, and reactions aren't supported yet.
+- Never guess your XChat PIN. There's a strict failed-attempt lockout. Reset it from a device that can already read your chats if you forget it.
 
-```powershell
-npm.cmd ci --prefix .\internal\xchat\runtime
-```
-
-The runtime uses the official, MIT-licensed
-[`@xdevplatform/chat-xdk`](https://github.com/xdevplatform/chat-xdk) and
-Juicebox SDK packages. Exact versions and integrity hashes are recorded in
-`package-lock.json`.
-
-### 2. Capture a web session
+<details>
+<summary>Multiple accounts / logout / clearing cache</summary>
 
 ```sh
-go run . auth web --browser chrome
+go run . auth use <account>              # switch saved web account
+go run . logout web --account <account>  # remove one account's auth
+go run . logout web                      # remove all web auth
+go run . cache clear web --account <account>
 ```
 
-`xdm` opens a dedicated persistent browser profile without remote debugging.
-Sign in manually, confirm that the X home timeline loads, and close the browser
-window. The same profile is then reopened briefly to capture the authenticated
-session.
+Add `--delete-data` to any `logout` command to also wipe that account's local message database and dedicated browser profile.
 
-Supported browser values are `auto`, `chrome`, `edge`, and `chromium`.
+</details>
 
-### 3. Confirm authentication
+---
+
+## Set up: Official API backend
+
+Paid. Use this if you already have X Developer Platform access, or need officially sanctioned, stable access. As of 2026, X's developer platform is pay-per-use with no free tier for new apps; check [current pricing](https://docs.x.com/x-api/getting-started/pricing) before committing.
 
 ```sh
-go run . auth status
-go run . auth web diagnose
+# 1. In your X Developer app, register this callback:
+#    http://127.0.0.1:8743/callback
+
+# 2. Authorize
+go run . auth --client-id <your-client-id>   # add --no-browser if needed
+
+# 3. Launch (this is the default backend)
+go run .
 ```
 
-The diagnostic command reports counts and response structure without printing
-cookies, keys, message text, or account secrets.
-
-### 4. Verify XChat recovery
-
-```sh
-go run . auth web unlock
-```
-
-Enter the existing XChat PIN when prompted. Nothing is echoed while typing.
-The PIN is passed to the local crypto process through standard input, cleared
-from the Go buffer after use, and never saved by `xdm`.
-
-Do not guess the PIN. XChat applies a strict failed-attempt limit to key
-recovery. If it was forgotten, reset it from a device that can already read the
-encrypted conversations.
-
-### 5. Start the TUI
-
-```sh
-go run . --backend web
-```
-
-The PIN is requested once per run. The unlocked private key and conversation
-keys remain only in the crypto process memory while the TUI is open.
-
-The web backend currently reads and sends encrypted text messages in existing
-conversations. Conversation creation, complete history pagination, media,
-reactions, typing indicators, and server-side read receipts are not supported
-yet.
+---
 
 ## Keyboard controls
 
 | Key | Action |
 | --- | --- |
 | `j` / `k`, arrows | Move through conversations or results |
-| `g` / `G` | Jump to the first or last conversation |
+| `g` / `G` | Jump to first / last conversation |
 | `Tab` | Switch between inbox and conversation panes |
-| `Enter` or `i` | Open the message composer |
-| `Enter` in composer | Send the message |
-| `Ctrl+Enter` / `Alt+Enter` | Insert a newline while composing |
+| `Enter` / `i` | Open composer |
+| `Enter` (in composer) | Send |
+| `Ctrl+Enter` / `Alt+Enter` | Newline while composing |
 | `/` | Search conversations and cached messages |
-| `R` | Synchronize immediately |
-| `Esc` | Leave the active input or results view |
+| `R` | Sync now |
+| `Esc` | Leave current input/view |
 | `q` / `Ctrl+C` | Quit |
 
-The inbox synchronizes automatically every 65 seconds while the TUI is open.
+Inbox auto-syncs every 65 seconds.
 
-## Authentication and accounts
+---
 
-Inspect saved authentication without exposing credentials:
+## What's supported right now
 
-```sh
-go run . auth status
-```
+| Capability | Demo | Official API | Web/XChat |
+| --- | :---: | :---: | :---: |
+| Browse cached conversations | ✅ | ✅ | ✅ |
+| Read and search messages | ✅ | ✅ | ✅ |
+| Send text messages | Local only | ✅ | ✅ (encrypted) |
+| Multiple accounts | - | - | ✅ |
+| End-to-end encryption | - | - | ✅ |
+| Full history pagination | - | 🔜 | 🔜 |
+| Create new conversations | - | 🔜 | 🔜 |
+| Media / attachments | - | 🔜 | 🔜 |
 
-Select a saved web account:
+`xdm` is alpha software. No stable release or compatibility guarantee yet.
 
-```sh
-go run . auth use <account>
-```
+---
 
-Remove authentication:
+## Security essentials
 
-```sh
-go run . logout official
-go run . logout web --account <account>
-go run . logout web
-go run . logout all
-```
+- OAuth tokens and web-session keys live in your OS keyring; browser cookies are stored in an AES-GCM encrypted vault.
+- **Your local message database is not encrypted.** It's plain SQLite, used for offline browsing/search. Protect it the way you'd protect any other local file with private data (disk encryption, account access control).
+- XChat PINs and decrypted private keys are never written to disk.
+- `logout --delete-data` wipes the message database, cache index, and (for web accounts) the dedicated browser profile.
+- Deleting files doesn't guarantee physical erasure on SSDs, snapshots, or backups. Use OS-level disk encryption if that threat matters to you.
 
-Each web account has an isolated local message database.
-`xdm` keeps a minimal cache index so a database can still be selected by its
-account name after authentication is removed.
+Full details in the README history / [SECURITY.md](SECURITY.md). Report vulnerabilities there privately, never in a public issue.
 
-Clear cached messages without removing authentication:
-
-```sh
-go run . cache clear official
-go run . cache clear web --account <account>
-go run . cache clear all
-```
-
-To remove authentication and the associated local data together, add
-`--delete-data` to a `logout` command:
-
-```sh
-go run . logout official --delete-data
-go run . logout web --account <account> --delete-data
-go run . logout web --delete-data
-go run . logout all --delete-data
-```
-
-Deleting data for any web account also removes the dedicated browser profiles,
-because a profile can contain cookies for more than one saved account. Other
-encrypted web sessions remain saved when `--account` selects one account.
-
-## Data and security model
-
-- Official OAuth tokens and the web-session encryption key are held by the
-  operating-system keyring.
-- Saved browser cookies are stored in an AES-GCM encrypted vault under the
-  user's configuration directory.
-- Web authentication uses a dedicated browser profile instead of attaching a
-  debugger to the user's normal browser session.
-- XChat PINs and recovered private keys are not persisted by `xdm`.
-- Decrypted message history is cached locally in SQLite for browsing and
-  search. The message database itself is **not encrypted**; protect the user
-  account and disk accordingly.
-- The web cache index contains account identifiers and cache keys, but no
-  tokens, cookies, PINs, keys, or message content. It is removed with the
-  corresponding caches.
-- `cache clear` removes unencrypted message databases while preserving saved
-  authentication and dedicated browser profiles.
-- `logout --delete-data` removes the selected message database, SQLite sidecar
-  files and cache-index entries before removing authentication. For web
-  authentication it also removes all dedicated browser profiles.
-- File deletion cannot guarantee physical media sanitization on SSDs,
-  copy-on-write filesystems, backups, or snapshots. Use operating-system disk
-  encryption and retention controls when that threat is relevant.
-- Sensitive logs, cookies, tokens, message databases, and real message content
-  must never be attached to public issues.
-
-See [SECURITY.md](SECURITY.md) for private vulnerability reporting.
+---
 
 ## Roadmap
 
-- Add complete inbox and conversation history pagination.
-- Create new one-to-one and group conversations.
-- Support encrypted media and attachments.
-- Add replies, reactions, edits, deletes, and read receipts.
-- Make release archives reproducible and add platform code signing.
+- Full inbox/conversation history pagination
+- Creating new conversations
+- Encrypted media and attachments
+- Replies, reactions, edits, deletes, read receipts
+- Reproducible builds + code signing
 
-Roadmap items are directional, not release commitments. Open an issue before
-starting a large feature so its design and scope can be discussed.
+Open an issue before starting a large feature so scope can be discussed first.
 
-## Development
+---
 
-Run the standard validation suite:
+## Contributing
 
 ```sh
 gofmt -d <changed-go-files>
 go test ./...
 go vet ./...
 go build ./...
-git diff --check
 ```
 
-To assemble an XChat-capable artifact, use an extracted official Node.js
-distribution for the host platform. Its `LICENSE` file is included in the
-bundle along with the pinned SDK packages and both WebAssembly modules:
-
-```sh
-npm ci --prefix ./internal/xchat/runtime
-go run ./cmd/package-xchat-helper --node-dir <node-distribution> --output ./dist/xdm
-go build -trimpath -o ./dist/xdm/xdm .
-```
-
-On Windows, name the final application `xdm.exe`. The packaging command only
-accepts a new output directory, records the Node version and package-lock hash,
-and never overwrites an existing artifact.
-
-Pushing a semantic-version tag such as `v0.1.0` runs the release workflow. It
-validates the repository, builds the four supported packages on native GitHub
-runners, generates `checksums.txt`, and publishes all files in a GitHub release.
-Running the workflow manually produces temporary Actions artifacts without
-publishing a release.
-
-Use the demo backend for interface work and sanitized test fixtures for network
-or cryptographic changes. Never commit credentials, cookies, PINs, private
-keys, message databases, or real Direct Message content.
-
-See [CONTRIBUTING.md](CONTRIBUTING.md) for branch naming, Conventional Commits,
-code guidelines, validation, and pull request expectations.
-
-## Contributing
-
-Bug reports, focused pull requests, documentation improvements, and design
-discussion are welcome.
-
-- Use the repository issue templates for bugs and feature proposals.
-- Keep pull requests focused and open them against `main`.
-- Report vulnerabilities privately according to [SECURITY.md](SECURITY.md).
-- By contributing, you agree that your work is licensed under the MIT License.
+See [CONTRIBUTING.md](CONTRIBUTING.md) for branch naming, commit style, and PR expectations. By contributing you agree your work is MIT-licensed.
 
 ## License
 
-Copyright © 2026 Willian.
-
-Released under the [MIT License](LICENSE).
+MIT © 2026 Willian. See [LICENSE](LICENSE).
