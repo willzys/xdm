@@ -149,6 +149,59 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           Copy-Item -LiteralPath "LICENSE", "README.md" -Destination $bundle
           Compress-Archive -Path $bundle -DestinationPath "dist/$env:ARTIFACT_NAME.zip"
+      - name: Smoke test Linux or macOS package
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          smoke_dir="$RUNNER_TEMP/xdm-package-smoke"
+          mkdir -p "$smoke_dir"
+          tar -C "$smoke_dir" -xzf "dist/$ARTIFACT_NAME.tar.gz"
+          package="$smoke_dir/$ARTIFACT_NAME"
+          test -x "$package/xdm"
+          test -x "$package/xdm-xchat-helper"
+          test -f "$package/xchat-helper.json"
+          test -f "$package/LICENSE"
+          test -f "$package/README.md"
+          test -f "$package/THIRD_PARTY_NOTICES/NODE-LICENSE.txt"
+          test -f "$package/xchat-runtime/session.mjs"
+          test -f "$package/xchat-runtime/decrypt.mjs"
+          "$package/xdm" --help
+          "$package/xdm" auth --help
+          "$package/xdm" cache --help
+          response="$(printf '%s\n' '{"op":"smoke-test"}' | "$package/xdm-xchat-helper")"
+          [[ "$response" == *'"error":"unsupported XChat operation smoke-test"'* ]]
+      - name: Smoke test Windows package
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $smokeDir = Join-Path $env:RUNNER_TEMP "xdm-package-smoke"
+          Expand-Archive -LiteralPath "dist/$env:ARTIFACT_NAME.zip" -DestinationPath $smokeDir
+          $package = Join-Path $smokeDir $env:ARTIFACT_NAME
+          @(
+            "xdm.exe",
+            "xdm-xchat-helper.exe",
+            "xchat-helper.json",
+            "LICENSE",
+            "README.md",
+            "THIRD_PARTY_NOTICES/NODE-LICENSE.txt",
+            "xchat-runtime/session.mjs",
+            "xchat-runtime/decrypt.mjs"
+          ) | ForEach-Object {
+            if (-not (Test-Path -LiteralPath (Join-Path $package $_) -PathType Leaf)) {
+              throw "Package file is missing: $_"
+            }
+          }
+          & (Join-Path $package "xdm.exe") --help
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          & (Join-Path $package "xdm.exe") auth --help
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          & (Join-Path $package "xdm.exe") cache --help
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $response = '{"op":"smoke-test"}' | & (Join-Path $package "xdm-xchat-helper.exe")
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          if ($response -notlike '*"error":"unsupported XChat operation smoke-test"*') {
+            throw "Unexpected XChat helper response: $response"
+          }
       - name: Upload package
         uses: actions/upload-artifact@v7.0.1
         with:
@@ -174,6 +227,11 @@ jobs:
           cd release-assets
           sha256sum xdm-* > checksums.txt
           cat checksums.txt
+      - name: Verify checksums
+        shell: bash
+        run: |
+          cd release-assets
+          sha256sum --check checksums.txt
       - name: Upload checksums
         uses: actions/upload-artifact@v7.0.1
         with:
